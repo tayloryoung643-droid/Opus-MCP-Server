@@ -21,7 +21,7 @@ export async function handler(
 
     try {
       const { sql } = await import('drizzle-orm');
-      const { db } = await import('../../server/db.js');
+      const { db } = await import('../../../server/db.js');
 
       const query = `
         SELECT id, user_id, event_id, text, updated_at 

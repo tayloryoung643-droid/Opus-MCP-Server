@@ -11,8 +11,8 @@ export class UnifiedMCPContextResolver {
 
   async initialize(): Promise<void> {
     try {
-      const { createMcpContext } = await import('../../server/mcp/client.js');
-      const { storage } = await import('../../server/storage.js');
+      const { createMcpContext } = await import('../../../server/mcp/client.js');
+      const { storage } = await import('../../../server/storage.js');
       
       this.mcpServices = await createMcpContext(this.userId);
       
@@ -58,7 +58,7 @@ export class UnifiedMCPContextResolver {
     hasSalesforce: boolean;
     hasGmail: boolean;
   }> {
-    const { validateUserIntegrations } = await import('../../server/mcp/client.js');
+    const { validateUserIntegrations } = await import('../../../server/mcp/client.js');
     return await validateUserIntegrations(this.userId);
   }
 }
