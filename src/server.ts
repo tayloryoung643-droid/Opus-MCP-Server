@@ -2,13 +2,13 @@ import express, { Request, Response, NextFunction, Express } from 'express';
 import cors from 'cors';
 import { HttpError, configError } from './errors.js';
 import { registerTools, getToolContracts } from './tools/index.js';
-import { env, port, portSource } from './config.js';
+import { CONFIG } from './config.js';
 
 const app: Express = express();
 
 const allowedOrigins = [
-  env.APP_ORIGIN,
-  env.API_ORIGIN,
+  process.env.APP_ORIGIN,
+  process.env.API_ORIGIN,
   'http://localhost:5000',
   'http://localhost:4000'
 ].filter(Boolean);
@@ -68,13 +68,11 @@ async function startServer() {
     console.log('[MCP-Server] Registering tools...');
     await registerTools(app);
 
-    app.listen(port, () => {
-      console.log(`[MCP-Server] ✅ Opus MCP Service running on http://localhost:${port} (source: ${portSource})`);
-      console.log(`[MCP-Server] Health check: http://localhost:${port}/healthz`);
-      console.log(`[MCP-Server] Contracts: http://localhost:${port}/contracts`);
+    app.listen(CONFIG.PORT, "0.0.0.0", () => {
+      console.log(`[MCP-Server] Listening on http://0.0.0.0:${CONFIG.PORT} (source: PORT)`);
     }).on("error", (err: any) => {
       if (err.code === "EADDRINUSE") {
-        console.error(`[MCP-Server] ❌ Port ${port} is already in use. Set PORT to a free port (e.g., 4000) and try again.`);
+        console.error(`[MCP-Server] ❌ Port ${CONFIG.PORT} is already in use. Set PORT to a free port (e.g., 4000) and try again.`);
         process.exit(1);
       }
       throw err;
