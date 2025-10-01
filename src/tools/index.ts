@@ -71,7 +71,7 @@ function summarizeSchema(schema: ZodSchema): any {
 export async function registerTools(app: Express) {
   await loadTools();
 
-  const { storage } = await import('../../../server/storage.js');
+  const { storage } = await import('../server/storage.js');
 
   for (const tool of tools) {
     app.post(`/tools/${tool.name}`, bearerAuth, async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {

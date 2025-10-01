@@ -21,7 +21,7 @@ export async function buildSalesContext({ mcp, userId }: { mcp: any; userId: str
     }
   };
 
-  const { validateUserIntegrations } = await import('../../../server/mcp/client.js');
+  const { validateUserIntegrations } = await import('../../server/mcp/client.js');
   context.integrationStatus = await validateUserIntegrations(userId);
 
   console.log(`[MCP-Context] Building sales context for user ${userId}:`, context.integrationStatus);
