@@ -1,4 +1,6 @@
+import http from 'http';
 import express, { Request, Response, NextFunction, Express } from 'express';
+import { WebSocketServer } from 'ws';
 import cors from 'cors';
 import { HttpError, configError } from './errors.js';
 import { registerTools, getToolContracts } from './tools/index.js';
@@ -39,14 +41,6 @@ app.get('/contracts', (req: Request, res: Response) => {
   res.json({ tools });
 });
 
-app.get('/ws', (req: Request, res: Response) => {
-  res.status(501).json({
-    error: {
-      code: 'NOT_IMPLEMENTED',
-      message: 'WebSocket support coming soon'
-    }
-  });
-});
 
 // Agent endpoint will be registered after tools are loaded
 
@@ -72,10 +66,32 @@ async function startServer() {
     console.log('[MCP-Server] Registering tools...');
     await registerTools(app);
 
-    app.listen(CONFIG.PORT, "0.0.0.0", () => {
+    const server = http.createServer(app);
+    const wss = new WebSocketServer({ server, path: '/ws/voice' });
+
+    wss.on('connection', (ws) => {
+      console.log('[WebSocket] Client connected to /ws/voice');
+      
+      ws.on('message', (message) => {
+        console.log('[WebSocket] Received:', message.toString());
+      });
+
+      ws.on('close', () => {
+        console.log('[WebSocket] Client disconnected');
+      });
+
+      ws.on('error', (error) => {
+        console.error('[WebSocket] Error:', error);
+      });
+    });
+
+    server.listen(CONFIG.PORT, "0.0.0.0", () => {
       console.log(`[MCP-Server] Listening on http://0.0.0.0:${CONFIG.PORT} (source: PORT)`);
       console.log(`[MCP-Server] Health: GET /healthz   Contracts: GET /contracts`);
-    }).on("error", (err: any) => {
+      console.log(`[MCP-Server] WebSocket: WS /ws/voice`);
+    });
+
+    server.on("error", (err: any) => {
       if (err.code === "EADDRINUSE") {
         console.error(`[MCP-Server] ❌ Port ${CONFIG.PORT} is already in use. Set PORT to a free port (e.g., 4000) and try again.`);
         process.exit(1);
