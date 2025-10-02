@@ -3,7 +3,7 @@ import {
   type SalesforceOpportunity,
   type MCPToolContext
 } from '../contracts/index.js';
-import { integrationError } from '../errors.js';
+import { HttpError, integrationError } from '../errors.js';
 
 export const name = 'salesforce.lookup_opportunity.v1';
 export const version = 'v1';
@@ -21,10 +21,27 @@ export async function handler(
 
     const salesforceIntegration = await context.storage.getSalesforceIntegration(context.userId);
     if (!salesforceIntegration?.isActive) {
-      throw integrationError('SALESFORCE_NOT_CONNECTED', 'Connect Salesforce to access CRM data');
+      throw new HttpError(
+        401,
+        'SFDC_NOT_CONNECTED',
+        'Salesforce not connected',
+        { hint: 'Connect in Settings → Integrations' }
+      );
     }
 
-    const { salesforceCrmService } = await import('../../../server/services/salesforceCrm.js');
+    // Try to load the Salesforce service
+    let salesforceCrmService;
+    try {
+      const module = await import('../../../server/services/salesforceCrm.js');
+      salesforceCrmService = module.salesforceCrmService;
+    } catch (importError: any) {
+      throw new HttpError(
+        401,
+        'SFDC_NOT_CONNECTED',
+        'Salesforce not connected',
+        { hint: 'Connect in Settings → Integrations' }
+      );
+    }
 
     let opportunities: any[] = [];
 

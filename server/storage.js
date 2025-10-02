@@ -140,5 +140,18 @@ export const storage = {
       console.error('[Storage] getPrepNotes error:', error);
       return null;
     }
+  },
+
+  // Integration status queries - stubs for now
+  async getGoogleIntegration(userId) {
+    // TODO: Implement when user_integrations table is ready
+    // For now, return inactive to trigger proper error codes
+    return { isActive: false, accessToken: null, refreshToken: null, tokenExpiry: null };
+  },
+
+  async getSalesforceIntegration(userId) {
+    // TODO: Implement when user_integrations table is ready
+    // For now, return inactive to trigger proper error codes
+    return { isActive: false };
   }
 };

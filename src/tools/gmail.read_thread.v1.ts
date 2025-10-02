@@ -1,5 +1,5 @@
 import { gmailReadThreadSchemaV1, type GmailMessage, type MCPToolContext } from '../contracts/index.js';
-import { integrationError, badRequest } from '../errors.js';
+import { HttpError, integrationError, badRequest } from '../errors.js';
 
 export const name = 'gmail.read_thread.v1';
 export const version = 'v1';
@@ -22,7 +22,12 @@ export async function handler(
 
     const googleIntegration = await context.storage.getGoogleIntegration(userId);
     if (!googleIntegration?.accessToken) {
-      throw integrationError('GOOGLE_NOT_CONNECTED', 'Connect Google to access Gmail');
+      throw new HttpError(
+        401,
+        'GOOGLE_NOT_CONNECTED',
+        'Gmail not connected',
+        { hint: 'Connect in Settings → Integrations' }
+      );
     }
 
     const tokens = {
@@ -31,9 +36,22 @@ export async function handler(
       expiry_date: googleIntegration.tokenExpiry?.getTime()
     };
 
-    const { readThread, extractMessageParts } = await import('../../../server/services/gmail.js');
+    // Try to load the Gmail service
+    let readThread, extractMessageParts;
+    try {
+      const module = await import('../../../server/services/gmail.js');
+      readThread = module.readThread;
+      extractMessageParts = module.extractMessageParts;
+    } catch (importError: any) {
+      throw new HttpError(
+        401,
+        'GOOGLE_NOT_CONNECTED',
+        'Gmail not connected',
+        { hint: 'Connect in Settings → Integrations' }
+      );
+    }
     const thread = await readThread(tokens, params.threadId);
-    const messages = (thread.messages || []).map(m => {
+    const messages = (thread.messages || []).map((m: any) => {
       const parts = extractMessageParts(m);
       return {
         id: parts.id,

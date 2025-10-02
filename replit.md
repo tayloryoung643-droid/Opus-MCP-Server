@@ -80,11 +80,14 @@ Preferred communication style: Simple, everyday language.
 **Key Design Decisions**:
 - `HttpError` base class with statusCode, code, message, and optional details
 - Helper functions: `unauthorized()`, `badRequest()`, `internalError()`, `configError()`, `integrationError()`
-- Integration errors return 401 with specific codes (e.g., `GOOGLE_NOT_CONNECTED`, `SALESFORCE_NOT_CONNECTED`)
+- Integration errors return 401 with specific codes:
+  - `GOOGLE_NOT_CONNECTED`: Google Calendar/Gmail not connected
+  - `SFDC_NOT_CONNECTED`: Salesforce not connected (note: uses `SFDC_` prefix, not `SALESFORCE_`)
+- Error responses include helpful hints: `{"hint":"Connect in Settings → Integrations"}`
 - Express error middleware converts all errors to consistent JSON format
-- No mock data - missing integrations return typed errors
+- No mock data - missing integrations return typed errors with actionable guidance
 
-**Rationale**: Structured errors allow clients to programmatically handle different failure scenarios (missing auth, bad input, service unavailable) rather than parsing error messages.
+**Rationale**: Structured errors allow clients to programmatically handle different failure scenarios (missing auth, bad input, service unavailable) rather than parsing error messages. The hint field provides UI-ready guidance for end users.
 
 ### Tool Categories and Implementations
 

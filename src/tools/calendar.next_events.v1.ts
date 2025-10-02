@@ -3,7 +3,7 @@ import {
   type CalendarEvent,
   type MCPToolContext
 } from '../contracts/index.js';
-import { integrationError } from '../errors.js';
+import { HttpError, integrationError } from '../errors.js';
 
 export const name = 'calendar.next_events.v1';
 export const version = 'v1';
@@ -20,11 +20,30 @@ export async function handler(
   try {
     const params = inputSchema.parse(args);
 
-    const { googleCalendarService } = await import('../../../server/services/googleCalendar.js');
-
+    // Check integration status first
     const integration = await context.storage.getGoogleIntegration(context.userId);
     if (!integration?.isActive) {
-      throw integrationError('GOOGLE_NOT_CONNECTED', 'Connect Google Calendar to access events');
+      throw new HttpError(
+        401,
+        'GOOGLE_NOT_CONNECTED',
+        'Google Calendar not connected',
+        { hint: 'Connect in Settings → Integrations' }
+      );
+    }
+
+    // Try to load the Google Calendar service
+    let googleCalendarService;
+    try {
+      const module = await import('../../../server/services/googleCalendar.js');
+      googleCalendarService = module.googleCalendarService;
+    } catch (importError: any) {
+      // Service not installed or OAuth not configured
+      throw new HttpError(
+        401,
+        'GOOGLE_NOT_CONNECTED',
+        'Google Calendar not connected',
+        { hint: 'Connect in Settings → Integrations' }
+      );
     }
 
     let events: any[] = [];
@@ -34,7 +53,7 @@ export async function handler(
       if (event) events = [event];
     } else if (params.contactEmail) {
       const allEvents = await googleCalendarService.getUpcomingEvents(context.userId, 50);
-      events = allEvents.filter(event => {
+      events = allEvents.filter((event: any) => {
         if (!event.attendees) return false;
         return event.attendees.some((attendee: any) => attendee.email === params.contactEmail);
       });
@@ -69,7 +88,7 @@ export async function handler(
       const now = new Date();
       const next24Hours = new Date(now.getTime() + (24 * 60 * 60 * 1000));
 
-      events = allEvents.filter(event => {
+      events = allEvents.filter((event: any) => {
         const eventStartStr = event.start?.dateTime ?? (event.start?.date ? `${event.start.date}T00:00:00Z` : null);
         if (!eventStartStr || !event.start?.dateTime) return false;
         const eventTime = new Date(eventStartStr);
