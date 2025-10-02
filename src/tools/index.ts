@@ -13,6 +13,7 @@ interface Tool {
 }
 
 const tools: Tool[] = [];
+const toolHandlers: Record<string, (args: unknown, context: MCPToolContext) => Promise<any>> = {};
 
 async function loadTools() {
   const toolModules = [
@@ -27,13 +28,15 @@ async function loadTools() {
   ];
 
   for (const module of toolModules) {
-    tools.push({
+    const tool = {
       name: module.name,
       version: module.version,
       inputSchema: module.inputSchema,
       description: module.description,
       handler: module.handler
-    });
+    };
+    tools.push(tool);
+    toolHandlers[tool.name] = tool.handler;
   }
 
   console.log(`[MCP-Tools] Loaded ${tools.length} tools:`, tools.map(t => t.name));
@@ -47,6 +50,14 @@ export function getToolContracts() {
     inputSchemaSummary: summarizeSchema(tool.inputSchema),
     outputSchemaSummary: 'Tool-specific response object'
   }));
+}
+
+export function getToolNames(): string[] {
+  return tools.map(t => t.name);
+}
+
+export function getToolByName(name: string): Tool | undefined {
+  return tools.find(t => t.name === name);
 }
 
 function summarizeSchema(schema: ZodSchema): any {

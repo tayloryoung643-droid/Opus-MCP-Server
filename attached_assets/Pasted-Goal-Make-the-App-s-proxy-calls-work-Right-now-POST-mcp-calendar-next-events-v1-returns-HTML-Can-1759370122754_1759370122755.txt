@@ -1,0 +1,101 @@
+Goal: Make the App’s proxy calls work. Right now POST /mcp/calendar.next_events.v1 returns HTML “Cannot POST…”. Add a compatibility router so tools are reachable at POST /mcp/:tool, wired to the existing tool handlers. Keep existing native routes unchanged.
+
+Tasks (do exactly this):
+
+Expose a compat route
+
+Add POST /mcp/:tool that:
+
+Authenticates with Authorization: Bearer <MCP_SERVICE_TOKEN>.
+
+Looks up req.params.tool in the existing tool handlers map (e.g., "calendar.next_events.v1", "gmail.search_threads.v1", etc.).
+
+Invokes the handler with req.body and returns its JSON result.
+
+On unknown tool, return 404 JSON: { error:{ code:"UNKNOWN_TOOL", message:key } }.
+
+On exceptions, return 500 JSON: { error:{ code:"TOOL_ERROR", message } }.
+
+Ensure these endpoints exist and respond JSON:
+
+GET /contracts → returns an array of tool keys exactly as they should be invokable via /mcp/:tool.
+
+POST /agent/act → existing agent endpoint (leave as is, just confirm it’s mounted).
+
+GET /healthz → {"ok":true} (already working).
+
+Logging & headers:
+
+Accept and forward x-request-id (echo back on responses).
+
+Log { rid, route, status, ms } per request.
+
+Do not log the raw token.
+
+Keep current server setup
+
+Single http.createServer(app); WebSocket bound at /ws/voice.
+
+Bind 0.0.0.0 on Number(process.env.PORT) || 8000.
+
+Reference patch (TypeScript; adapt to your file layout):
+
+// src/server.ts
+import express from "express";
+import type { Request, Response } from "express";
+import { authMiddleware } from "./auth";
+import { toolHandlers } from "./tools"; // map: { "calendar.next_events.v1": handler, ... }
+
+const router = express.Router();
+
+router.get("/contracts", (_req, res) => {
+  res.json({ tools: Object.keys(toolHandlers) });
+});
+
+router.post("/mcp/:tool", authMiddleware, async (req: Request, res: Response) => {
+  const rid = String(req.header("x-request-id") || crypto.randomUUID());
+  const key = req.params.tool;
+  const handler = (toolHandlers as any)[key];
+  const t0 = Date.now();
+  res.setHeader("x-request-id", rid);
+  if (!handler) return res.status(404).json({ error: { code: "UNKNOWN_TOOL", message: key } });
+  try {
+    const result = await handler(req, res); // if your handlers write directly, just `return`
+    if (!res.headersSent) res.json(result);
+  } catch (e: any) {
+    console.error("[MCP]", { rid, route: `/mcp/${key}`, err: e?.message });
+    if (!res.headersSent) res.status(500).json({ error: { code: "TOOL_ERROR", message: e?.message || "Internal Error" } });
+  } finally {
+    console.log("[MCP]", { rid, route: `/mcp/${key}`, status: res.statusCode, ms: Date.now() - t0 });
+  }
+});
+
+// ensure POST /agent/act is mounted as before
+app.use(router);
+
+
+Acceptance tests (run in MCP shell):
+
+export BASE="https://<YOUR-SUBDOMAIN>.replit.dev:8000"
+export TOKEN="$MCP_SERVICE_TOKEN"
+
+# 1) Contracts shows tool keys (must include 'calendar.next_events.v1')
+curl -s "$BASE/contracts"
+
+# 2) Compat route works (JSON, not HTML)
+curl -s -X POST "$BASE/mcp/calendar.next_events.v1" \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"userId":"dev_user","startIso":"2025-10-05T00:00:00Z","endIso":"2025-10-06T00:00:00Z"}'
+
+# 3) Health remains OK
+curl -s "$BASE/healthz"
+
+
+Done when:
+
+The POST above returns JSON (either real data or GOOGLE_NOT_CONNECTED), not HTML.
+
+/contracts lists the same keys we can POST via /mcp/:tool.
+
+App proxy calls to /api/mcp/calendar.next_events.v1 succeed without PROXY_ERROR.
