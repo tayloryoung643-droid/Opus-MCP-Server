@@ -6,4 +6,6 @@ export const CONFIG = {
 };
 
 console.log(`[config] port=${CONFIG.PORT}, tokenLen=${CONFIG.TOKEN.length}`);
-if (CONFIG.TOKEN.length < 10) throw new Error("MCP token missing/too short");
+if (CONFIG.TOKEN.length < 10) {
+  throw new Error("MCP token missing/too short (set MCP_SERVICE_TOKEN or MCP_SECRET_TOKEN)");
+}

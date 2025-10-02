@@ -11,7 +11,7 @@ const allowedOrigins = [
   process.env.API_ORIGIN,
   'http://localhost:5000',
   'http://localhost:4000'
-].filter(Boolean);
+].filter((origin): origin is string => Boolean(origin));
 
 app.use(cors({
   origin: allowedOrigins.length > 0 ? allowedOrigins : false,
@@ -24,6 +24,10 @@ app.use((req: Request, res: Response, next: NextFunction) => {
   console.log(`[${requestId}] ${req.method} ${req.path}`);
   (req as any).requestId = requestId;
   next();
+});
+
+app.get('/', (req: Request, res: Response) => {
+  res.type('text/plain').send('Opus MCP OK');
 });
 
 app.get('/healthz', (req: Request, res: Response) => {
@@ -70,6 +74,7 @@ async function startServer() {
 
     app.listen(CONFIG.PORT, "0.0.0.0", () => {
       console.log(`[MCP-Server] Listening on http://0.0.0.0:${CONFIG.PORT} (source: PORT)`);
+      console.log(`[MCP-Server] Health: GET /healthz   Contracts: GET /contracts`);
     }).on("error", (err: any) => {
       if (err.code === "EADDRINUSE") {
         console.error(`[MCP-Server] ❌ Port ${CONFIG.PORT} is already in use. Set PORT to a free port (e.g., 4000) and try again.`);

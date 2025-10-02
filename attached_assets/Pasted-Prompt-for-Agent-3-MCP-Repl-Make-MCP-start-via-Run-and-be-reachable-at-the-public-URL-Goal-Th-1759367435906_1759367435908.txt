@@ -1,0 +1,108 @@
+Prompt for Agent 3 (MCP Repl): “Make MCP start via Run and be reachable at the public URL”
+
+Goal: The MCP server must start from the Run button (not just shell), bind to Replit’s assigned PORT on 0.0.0.0, and answer on the public URL. Add simple debug routes and startup logs.
+
+Do:
+
+.replit
+
+Create or update the project’s .replit file to launch the server via npm:
+
+run = "npm run dev"
+language = "nodejs"
+entrypoint = "src/server.ts"
+
+
+If other sections exist, keep them; just ensure run = "npm run dev" is present.
+
+src/config.ts (ensure correct port + token resolution and logs)
+
+Use this minimal config and log on startup:
+
+import "dotenv/config";
+
+export const CONFIG = {
+  PORT: Number(process.env.PORT ?? process.env.MCP_PORT ?? 4000),
+  TOKEN: process.env.MCP_SERVICE_TOKEN ?? process.env.MCP_SECRET_TOKEN ?? ""
+};
+
+console.log(`[config] port=${CONFIG.PORT}, tokenLen=${CONFIG.TOKEN.length}`);
+if (CONFIG.TOKEN.length < 10) {
+  throw new Error("MCP token missing/too short (set MCP_SERVICE_TOKEN or MCP_SECRET_TOKEN)");
+}
+
+
+src/server.ts (bind to 0.0.0.0 and add a root route)
+
+Ensure Express listens on all interfaces and logs clearly:
+
+// after app/middleware/routes are set up:
+import { CONFIG } from "./config.js";
+
+app.get("/", (_req, res) => res.type("text/plain").send("Opus MCP OK"));
+app.get("/healthz", (_req, res) => res.json({ ok: true })); // keep existing if already present
+
+app.listen(CONFIG.PORT, "0.0.0.0", () => {
+  console.log(`[MCP-Server] Listening on http://0.0.0.0:${CONFIG.PORT} (source: PORT)`);
+  console.log(`[MCP-Server] Health: GET /healthz   Contracts: GET /contracts`);
+});
+
+
+auth (no behavior change, just read token from CONFIG)
+
+Ensure token check uses CONFIG.TOKEN.
+
+README.md (short note)
+
+Add a “Replit deploy” section:
+
+Start via Run (uses .replit).
+
+Public URL only works for the Run process.
+
+Don’t also start from the shell, or you’ll get “Port already in use”.
+
+Acceptance tests (Agent 3, please run and paste outputs):
+
+Click Run (do NOT start from shell). Console should show:
+
+[config] port=<some number e.g., 8000>, tokenLen=48
+[MCP-Server] Listening on http://0.0.0.0:<port> (source: PORT)
+[MCP-Server] Health: GET /healthz   Contracts: GET /contracts
+
+
+In the MCP shell:
+
+curl -s http://localhost:$PORT/healthz
+# expected: {"ok":true}
+
+
+From an external shell (or just show the result you get via the public URL):
+
+curl -s https://<THIS-REPL-PUBLIC-URL>/healthz
+# expected: {"ok":true}
+
+
+Also confirm:
+
+curl -s https://<THIS-REPL-PUBLIC-URL>/contracts | head -c 200
+# expected: JSON beginning with the tool contracts
+
+
+If port is “already in use”:
+
+Add a pre-run step in documentation:
+
+pkill -f "node.*src/server.ts" || true
+pkill -f tsx || true
+
+
+Then click Run once.
+
+Deliverables:
+
+Updated .replit, src/config.ts, src/server.ts, and README.
+
+Console screenshot showing the three startup lines above.
+
+Copy/paste of the two successful curl calls to /healthz (localhost and public URL).
