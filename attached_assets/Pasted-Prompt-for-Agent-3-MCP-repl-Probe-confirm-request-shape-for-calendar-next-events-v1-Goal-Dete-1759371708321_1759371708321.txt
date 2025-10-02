@@ -1,0 +1,74 @@
+Prompt for Agent 3 (MCP repl): Probe & confirm request shape for calendar.next_events.v1
+
+Goal: Determine the exact accepted request body for POST /mcp/calendar.next_events.v1. Run the probes below against the LIVE MCP (port 8000), report which one(s) return JSON (OK or typed error), and provide the canonical body we should use from the App. If none pass, extend the validator to accept our documented shape and re-test.
+
+Run these commands (exact) in the MCP shell:
+
+export BASE="https://$REPL_SLUG-$REPL_OWNER-$REPL_ID.spock.replit.dev:8000"
+export TOKEN="$MCP_SERVICE_TOKEN"
+
+echo "=== health ==="; curl -s "$BASE/healthz"
+
+echo "=== A) window wrapper ==="
+curl -s -X POST "$BASE/mcp/calendar.next_events.v1" \
+  -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
+  -d '{"userId":"dev_user","window":{"startIso":"2025-10-05T00:00:00Z","endIso":"2025-10-06T00:00:00Z"}}'
+
+echo "=== B) plain start/end ==="
+curl -s -X POST "$BASE/mcp/calendar.next_events.v1" \
+  -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
+  -d '{"userId":"dev_user","start":"2025-10-05T00:00:00Z","end":"2025-10-06T00:00:00Z"}'
+
+echo "=== C) daysAhead only ==="
+curl -s -X POST "$BASE/mcp/calendar.next_events.v1" \
+  -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
+  -d '{"userId":"dev_user","daysAhead":1}'
+
+echo "=== D) documented shape ==="
+curl -s -X POST "$BASE/mcp/calendar.next_events.v1" \
+  -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
+  -d '{"userId":"dev_user","startIso":"2025-10-05T00:00:00Z","endIso":"2025-10-06T00:00:00Z"}'
+
+
+Report back in this format:
+
+Health: <response>
+
+A) window wrapper: <status | JSON snippet>
+
+B) plain start/end: <status | JSON snippet>
+
+C) daysAhead: <status | JSON snippet>
+
+D) documented shape: <status | JSON snippet>
+
+Canonical accepted shape: <paste the exact JSON body we should use from the App>
+
+If none of A–D returns JSON (OK or typed error):
+
+Update the validator for calendar.next_events.v1 to accept ANY of:
+
+{ userId, startIso, endIso } ← this is our documented shape
+
+{ userId, window: { startIso, endIso } }
+
+{ userId, daysAhead } (default 1)
+
+Normalize internally to { startIso, endIso }.
+
+Improve BAD_REQUEST to include:
+
+{ "error": { "code":"BAD_REQUEST","message":"Invalid input",
+  "details":[{ "accepted":[
+    "{ userId, startIso, endIso }",
+    "{ userId, window: { startIso, endIso } }",
+    "{ userId, daysAhead }"
+  ],
+  "example": { "userId":"dev_user","startIso":"2025-10-05T00:00:00Z","endIso":"2025-10-06T00:00:00Z" } }]}}
+
+
+Re-run A–D and then provide the Canonical accepted shape as above.
+
+Bonus (if quick): Extend GET /contracts to include a schema/example for calendar.next_events.v1 so clients can self-describe.
+
+Done when: at least one of A–D returns JSON (OK or typed error like GOOGLE_NOT_CONNECTED) and you’ve posted the Canonical accepted shape for the App to use.

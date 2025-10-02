@@ -30,5 +30,9 @@ waitForPort = 8000
 localPort = 8000
 externalPort = 8000
 
+[[ports]]
+localPort = 42203
+externalPort = 80
+
 [nix]
 channel = "stable-25_05"

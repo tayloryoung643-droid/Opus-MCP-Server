@@ -20,12 +20,14 @@ Preferred communication style: Simple, everyday language.
 
 **Key Design Decisions**:
 - Each tool gets its own POST endpoint (e.g., `/tools/calendar.next_events.v1`)
+- Compatibility router at `/mcp/:tool` for simplified access (e.g., `/mcp/calendar.next_events.v1`)
 - Bearer token authentication on all tool endpoints via `Authorization: Bearer <token>`
 - Structured JSON error responses with error codes (UNAUTHORIZED, BAD_REQUEST, CONFIG_ERROR, etc.)
 - CORS configuration for cross-origin access from configured app/API origins
 - Public endpoints for `/healthz` (health checks) and `/contracts` (tool discovery)
+- WebSocket support at `/ws/voice` for real-time communication
 
-**Rationale**: Simple HTTP POST interface is easier to integrate than WebSocket for most use cases, while maintaining security through authentication.
+**Rationale**: Simple HTTP POST interface is easier to integrate than WebSocket for most use cases, while maintaining security through authentication. The compatibility router provides a simplified URL pattern for external apps.
 
 ### Tool Versioning System
 
@@ -87,7 +89,12 @@ Preferred communication style: Simple, everyday language.
 ### Tool Categories and Implementations
 
 **Calendar Tools** (`calendar.next_events.v1`):
-- Searches Google Calendar events by event ID, contact email, or time range
+- Searches Google Calendar events by multiple criteria:
+  - Event ID: `{"userId":"...", "eventId":"..."}`
+  - Contact email: `{"userId":"...", "contactEmail":"..."}`
+  - Time range (documented): `{"userId":"...", "startIso":"2025-10-05T00:00:00Z", "endIso":"2025-10-06T00:00:00Z"}`
+  - Time range (window): `{"userId":"...", "window":{"startIso":"...", "endIso":"..."}}`
+  - Days ahead: `{"userId":"...", "daysAhead":1}`
 - Returns structured event data with attendees
 - Filters for upcoming events in next 24 hours as default
 

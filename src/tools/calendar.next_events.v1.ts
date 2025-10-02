@@ -44,6 +44,26 @@ export async function handler(
         params.timeRange.start,
         params.timeRange.end
       );
+    } else if (params.startIso && params.endIso) {
+      events = await googleCalendarService.getEventsInRange(
+        context.userId,
+        params.startIso,
+        params.endIso
+      );
+    } else if (params.window) {
+      events = await googleCalendarService.getEventsInRange(
+        context.userId,
+        params.window.startIso,
+        params.window.endIso
+      );
+    } else if (params.daysAhead) {
+      const now = new Date();
+      const futureDate = new Date(now.getTime() + (params.daysAhead * 24 * 60 * 60 * 1000));
+      events = await googleCalendarService.getEventsInRange(
+        context.userId,
+        now.toISOString(),
+        futureDate.toISOString()
+      );
     } else {
       const allEvents = await googleCalendarService.getUpcomingEvents(context.userId, 200);
       const now = new Date();

@@ -39,9 +39,20 @@ export const calendarMeetingContextSchemaV1 = z.object({
     start: z.string(),
     end: z.string()
   }).optional(),
+  startIso: z.string().optional(),
+  endIso: z.string().optional(),
+  daysAhead: z.number().min(1).max(365).optional(),
+  window: z.object({
+    startIso: z.string(),
+    endIso: z.string()
+  }).optional(),
   includeAttendees: z.boolean().default(true)
-}).refine(data => data.eventId || data.contactEmail || data.timeRange, {
-  message: "At least one search criteria must be provided"
+}).refine(data => {
+  return data.eventId || data.contactEmail || data.timeRange || 
+         (data.startIso && data.endIso) || data.daysAhead || data.window;
+}, {
+  message: "At least one search criteria must be provided",
+  path: []
 });
 
 export const calendarAttendeeHistorySchemaV1 = z.object({
