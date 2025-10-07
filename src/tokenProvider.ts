@@ -33,6 +33,27 @@ interface TokenProviderResponse {
 const tokenCache = new Map<string, CachedTokens>();
 const CACHE_TTL_MS = 600_000; // 10 minutes
 
+// Track last fetch for debugging
+interface LastFetchState {
+  rid: string | null;
+  userId: string | null;
+  status: number | null;
+  receivedKeys: string[];
+  timestamp: number | null;
+}
+
+let lastFetch: LastFetchState = {
+  rid: null,
+  userId: null,
+  status: null,
+  receivedKeys: [],
+  timestamp: null
+};
+
+export function getLastFetch(): LastFetchState {
+  return { ...lastFetch };
+}
+
 /**
  * Fetch tokens for a user from the App's token provider
  * @param userId - User ID to fetch tokens for
@@ -61,7 +82,13 @@ export async function getTokensFor(
 
   try {
     const url = `${CONFIG.TOKEN_PROVIDER_URL}?userId=${encodeURIComponent(userId)}`;
-    console.log(`[TokenProvider:${rid}] Fetching tokens for userId=${userId} from provider`);
+    const urlHost = new URL(CONFIG.TOKEN_PROVIDER_URL).host;
+    
+    console.log(`[TokenProvider:${rid}]`, {
+      userId,
+      attempt: 'provider-fetch',
+      urlHost
+    });
 
     const headers: Record<string, string> = {
       'Authorization': `Bearer ${CONFIG.MCP_TOKEN_PROVIDER_SECRET}`
@@ -76,16 +103,27 @@ export async function getTokensFor(
       headers
     });
 
+    const status = response.status;
+
     if (!response.ok) {
-      console.warn(`[TokenProvider:${rid}] Provider returned ${response.status} for userId=${userId}`);
+      lastFetch = { rid, userId, status, receivedKeys: [], timestamp: now };
+      console.warn(`[TokenProvider:${rid}]`, {
+        status,
+        receivedKeys: []
+      });
       return null;
     }
 
     const data = await response.json() as TokenProviderResponse;
+    const receivedKeys = Object.keys(data || {});
 
     // Check if we got any tokens
     if (!data.google && !data.salesforce) {
-      console.log(`[TokenProvider:${rid}] Provider returned empty tokens for userId=${userId}`);
+      lastFetch = { rid, userId, status, receivedKeys, timestamp: now };
+      console.log(`[TokenProvider:${rid}]`, {
+        status,
+        receivedKeys
+      });
       return null;
     }
 
@@ -116,6 +154,13 @@ export async function getTokensFor(
 
     // Store in cache
     tokenCache.set(userId, tokens);
+    
+    // Update last fetch state
+    lastFetch = { rid, userId, status, receivedKeys, timestamp: now };
+    console.log(`[TokenProvider:${rid}]`, {
+      status,
+      receivedKeys
+    });
 
     return tokens;
   } catch (error) {

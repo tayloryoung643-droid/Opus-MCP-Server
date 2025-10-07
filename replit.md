@@ -24,8 +24,10 @@ Preferred communication style: Simple, everyday language.
 - Bearer token authentication on all tool endpoints via `Authorization: Bearer <token>`
 - Structured JSON error responses with error codes (UNAUTHORIZED, BAD_REQUEST, CONFIG_ERROR, etc.)
 - CORS configuration for cross-origin access from configured app/API origins
-- Public endpoints for `/healthz` (health checks) and `/contracts` (tool discovery)
+- Public endpoints for `/healthz` (health checks), `/contracts` (tool discovery), and `/debug/token-provider` (token provider diagnostics)
 - WebSocket support at `/ws/voice` for real-time communication
+- Support for `x-effective-user` header to specify userId (overrides body userId field)
+- Request ID propagation via `x-request-id` header for end-to-end observability
 
 **Rationale**: Simple HTTP POST interface is easier to integrate than WebSocket for most use cases, while maintaining security through authentication. The compatibility router provides a simplified URL pattern for external apps.
 
@@ -57,6 +59,23 @@ Preferred communication style: Simple, everyday language.
 
 **Rationale**: Zod provides both runtime validation and TypeScript types from a single source of truth, catching errors early and providing clear API contracts.
 
+### Token Provider System
+
+**Problem**: MCP service needs to fetch user integration tokens from the main App without duplicating OAuth flows.
+
+**Solution**: Token provider with 10-minute in-memory cache that fetches tokens from App's `/internal/integrations/tokens` endpoint.
+
+**Key Design Decisions**:
+- `getTokensFor(userId, requestId)` fetches tokens from `TOKEN_PROVIDER_URL`
+- 10-minute cache TTL to reduce provider calls while staying reasonably fresh
+- Authenticated with `MCP_TOKEN_PROVIDER_SECRET` bearer token
+- Request ID propagation for end-to-end observability
+- Safe logging: logs rid, userId, urlHost, status, receivedKeys - **never** token values
+- Debug endpoint at `/debug/token-provider` shows config and last fetch details
+- Returns null when tokens unavailable → tools return `*_NOT_CONNECTED` errors
+
+**Rationale**: Centralized token management in the App with MCP as a token consumer reduces complexity and security risk. Caching improves performance while auth boundary remains in the App.
+
 ### Context Resolution Pattern
 
 **Problem**: Tools need access to user-specific integrations, database, and external services.
@@ -64,10 +83,11 @@ Preferred communication style: Simple, everyday language.
 **Solution**: `MCPToolContext` object passed to all tool handlers with storage, services, and user info.
 
 **Key Design Decisions**:
-- Context includes: `userId`, `storage`, `googleCalendarService`, `salesforceCrmService`, `user` object
+- Context includes: `userId`, `storage`, `googleCalendarService`, `salesforceCrmService`, `user` object, `requestId`
 - Services are lazily initialized when tools execute
 - Context resolver (`UnifiedMCPContextResolver`) manages service initialization
 - Tools can check integration status via storage layer before making external calls
+- Request ID flows through entire call chain for tracing
 
 **Rationale**: Dependency injection pattern allows tools to remain focused on business logic while context handles cross-cutting concerns like authentication and service access.
 

@@ -8,6 +8,7 @@ import { registerTools, getToolContracts, getToolNames, getToolByName } from './
 import { bearerAuth, AuthenticatedRequest } from './auth.js';
 import { CONFIG } from './config.js';
 import { MCPToolContext } from './contracts/index.js';
+import { getLastFetch } from './tokenProvider.js';
 
 const app: Express = express();
 
@@ -45,6 +46,32 @@ app.get('/contracts', (req: Request, res: Response) => {
   res.json({ tools });
 });
 
+app.get('/debug/token-provider', (req: Request, res: Response) => {
+  const lastFetch = getLastFetch();
+  
+  let urlHost: string | null = null;
+  if (CONFIG.TOKEN_PROVIDER_URL) {
+    try {
+      urlHost = new URL(CONFIG.TOKEN_PROVIDER_URL).host;
+    } catch {
+      urlHost = 'invalid-url';
+    }
+  }
+  
+  res.json({
+    tokenProviderUrlSet: Boolean(CONFIG.TOKEN_PROVIDER_URL),
+    secretSet: Boolean(CONFIG.MCP_TOKEN_PROVIDER_SECRET),
+    urlHost,
+    lastFetch: lastFetch.rid ? {
+      rid: lastFetch.rid,
+      userId: lastFetch.userId,
+      status: lastFetch.status,
+      receivedKeys: lastFetch.receivedKeys,
+      timestamp: lastFetch.timestamp
+    } : null
+  });
+});
+
 app.post('/mcp/:tool', bearerAuth, async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
   const rid = String(req.header('x-request-id') || crypto.randomUUID());
   const toolName = req.params.tool;
@@ -65,11 +92,17 @@ app.post('/mcp/:tool', bearerAuth, async (req: AuthenticatedRequest, res: Respon
   }
   
   try {
-    const validatedInput = tool.inputSchema.parse(req.body);
+    // Extract userId from x-effective-user header or body
+    const effectiveUser = req.header('x-effective-user');
+    const bodyWithUser = effectiveUser 
+      ? { ...req.body, userId: effectiveUser }
+      : req.body;
+    
+    const validatedInput = tool.inputSchema.parse(bodyWithUser);
     
     const userId = validatedInput.userId || req.body.userId;
     if (!userId) {
-      throw badRequest('userId is required in request body');
+      throw badRequest('userId is required in request body or x-effective-user header');
     }
 
     const { storage } = await import('../server/storage.js');
