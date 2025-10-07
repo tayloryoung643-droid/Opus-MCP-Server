@@ -186,4 +186,5 @@ export interface MCPToolContext {
   googleCalendarService?: any;
   salesforceCrmService?: any;
   user?: any;
+  requestId?: string;
 }

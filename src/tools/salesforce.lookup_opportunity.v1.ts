@@ -19,7 +19,7 @@ export async function handler(
   try {
     const params = inputSchema.parse(args);
 
-    const salesforceIntegration = await context.storage.getSalesforceIntegration(context.userId);
+    const salesforceIntegration = await context.storage.getSalesforceIntegration(context.userId, context.requestId);
     if (!salesforceIntegration?.isActive) {
       throw new HttpError(
         401,

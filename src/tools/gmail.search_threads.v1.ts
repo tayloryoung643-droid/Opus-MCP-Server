@@ -16,7 +16,7 @@ export async function handler(
     const params = inputSchema.parse(args);
     const userId = params.userId;
 
-    const googleIntegration = await context.storage.getGoogleIntegration(userId);
+    const googleIntegration = await context.storage.getGoogleIntegration(userId, context.requestId);
     if (!googleIntegration?.accessToken) {
       throw new HttpError(
         401,

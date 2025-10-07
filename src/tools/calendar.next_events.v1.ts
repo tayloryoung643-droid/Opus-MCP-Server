@@ -21,7 +21,7 @@ export async function handler(
     const params = inputSchema.parse(args);
 
     // Check integration status first
-    const integration = await context.storage.getGoogleIntegration(context.userId);
+    const integration = await context.storage.getGoogleIntegration(context.userId, context.requestId);
     if (!integration?.isActive) {
       throw new HttpError(
         401,

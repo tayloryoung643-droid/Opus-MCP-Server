@@ -20,7 +20,7 @@ export async function handler(
       throw badRequest('threadId is required');
     }
 
-    const googleIntegration = await context.storage.getGoogleIntegration(userId);
+    const googleIntegration = await context.storage.getGoogleIntegration(userId, context.requestId);
     if (!googleIntegration?.accessToken) {
       throw new HttpError(
         401,

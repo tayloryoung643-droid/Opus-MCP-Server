@@ -1,0 +1,53 @@
+Prompt for Agent 3 — MCP Repl (MCP server)
+
+Goal: when MCP lacks local tokens for a user, pull tokens from the App’s new provider, cache 10 minutes, and retry the operation. Add x-request-id passthrough.
+
+Paste this to Agent 3 in the MCP Repl:
+
+You are working in the MCP Repl.
+
+OBJECTIVE
+If local token store has no tokens for the effective userId, fetch them from the App’s token provider:
+  GET <TOKEN_PROVIDER_URL>?userId=<id>
+  Authorization: Bearer <MCP_TOKEN_PROVIDER_SECRET>
+Cache result for 600s. Then proceed with Google/SFDC calls.
+
+IMPLEMENTATION
+1) ENV VARS (set in Replit Secrets)
+   - TOKEN_PROVIDER_URL=https://<APP-REPL-DOMAIN>/internal/integrations/tokens
+   - MCP_TOKEN_PROVIDER_SECRET=<same as App’s secret>
+   - LOG_LEVEL=info
+
+2) Token access layer:
+   Implement a function:
+     async function getTokensFor(userId: string): Promise<Tokens | null> {
+       // try localStore.get(userId)
+       // if missing: fetch from TOKEN_PROVIDER_URL with bearer secret
+       // if 200 and JSON non-empty: save to localStore with ttl=600
+       // return tokens or null if empty
+     }
+   Ensure we DO NOT log raw tokens. Only log the presence/state.
+
+3) Request flow:
+   - In each tool handler that needs Google/SFDC, resolve effectiveUserId (already derived by proxy) and call getTokensFor(userId).
+   - If tokens still null => return *_NOT_CONNECTED typed error (existing behavior).
+   - If tokens exist => execute API call.
+
+4) Observability:
+   - If incoming has x-request-id, include it in all logs and propagate to outbound fetch with header 'x-request-id'.
+   - Structured logs: {rid, tool, userId, status, ms}
+
+5) WS/compat routes unchanged, but ensure the same token resolution applies for those tools.
+
+TEST PLAN
+After deploying, run in the App Repl shell (so requests go through the proxy):
+   REAL_EMAIL="tayloryoung643@gmail.com"
+   curl -s -X POST "http://localhost:5000/api/mcp/calendar.next_events.v1?as=$REAL_EMAIL" \
+     -H "Content-Type: application/json" -d '{"daysAhead":1}'
+
+   curl -s -X POST "http://localhost:5000/api/mcp/salesforce.lookup_account.v1?as=$REAL_EMAIL" \
+     -H "Content-Type: application/json" -d '{"name":"Acme"}'
+
+EXPECTED:
+- If App has tokens stored for REAL_EMAIL, these now return real JSON (events or clean empty arrays), NOT *_NOT_CONNECTED.
+- Logs in MCP show {rid, tool:'calendar.next_events.v1'|'salesforce.lookup_account.v1', userId, status, ms}

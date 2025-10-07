@@ -142,16 +142,50 @@ export const storage = {
     }
   },
 
-  // Integration status queries - stubs for now
-  async getGoogleIntegration(userId) {
-    // TODO: Implement when user_integrations table is ready
-    // For now, return inactive to trigger proper error codes
-    return { isActive: false, accessToken: null, refreshToken: null, tokenExpiry: null };
+  // Integration status queries - uses token provider
+  async getGoogleIntegration(userId, requestId) {
+    try {
+      // Try to fetch tokens from the App's token provider
+      const { getTokensFor } = await import('../src/tokenProvider.js');
+      const tokens = await getTokensFor(userId, requestId);
+      
+      if (tokens?.google) {
+        return {
+          isActive: tokens.google.isActive,
+          accessToken: tokens.google.accessToken,
+          refreshToken: tokens.google.refreshToken,
+          tokenExpiry: tokens.google.tokenExpiry
+        };
+      }
+      
+      // No tokens available
+      return { isActive: false, accessToken: null, refreshToken: null, tokenExpiry: null };
+    } catch (error) {
+      console.error('[Storage] getGoogleIntegration error:', error);
+      return { isActive: false, accessToken: null, refreshToken: null, tokenExpiry: null };
+    }
   },
 
-  async getSalesforceIntegration(userId) {
-    // TODO: Implement when user_integrations table is ready
-    // For now, return inactive to trigger proper error codes
-    return { isActive: false };
+  async getSalesforceIntegration(userId, requestId) {
+    try {
+      // Try to fetch tokens from the App's token provider
+      const { getTokensFor } = await import('../src/tokenProvider.js');
+      const tokens = await getTokensFor(userId, requestId);
+      
+      if (tokens?.salesforce) {
+        return {
+          isActive: tokens.salesforce.isActive,
+          accessToken: tokens.salesforce.accessToken,
+          refreshToken: tokens.salesforce.refreshToken,
+          instanceUrl: tokens.salesforce.instanceUrl
+        };
+      }
+      
+      // No tokens available
+      return { isActive: false };
+    } catch (error) {
+      console.error('[Storage] getSalesforceIntegration error:', error);
+      return { isActive: false };
+    }
   }
 };

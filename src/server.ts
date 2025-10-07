@@ -77,7 +77,8 @@ app.post('/mcp/:tool', bearerAuth, async (req: AuthenticatedRequest, res: Respon
     const context: MCPToolContext = {
       userId,
       storage,
-      user: { id: userId }
+      user: { id: userId },
+      requestId: rid
     };
     
     const result = await tool.handler(validatedInput, context);
