@@ -120,7 +120,7 @@ export async function getTokensFor(
     // Check if we got any tokens
     if (!data.google && !data.salesforce) {
       lastFetch = { rid, userId, status, receivedKeys, timestamp: now };
-      console.log(`[TokenProvider:${rid}]`, {
+      console.warn(`[TokenProvider:${rid}] App provider returned {} - no tokens available for userId=${userId}`, {
         status,
         receivedKeys
       });

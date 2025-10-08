@@ -9,8 +9,21 @@ import { bearerAuth, AuthenticatedRequest } from './auth.js';
 import { CONFIG } from './config.js';
 import { MCPToolContext } from './contracts/index.js';
 import { getLastFetch } from './tokenProvider.js';
+import { execSync } from 'child_process';
 
 const app: Express = express();
+
+// Capture build time at server start
+const BUILD_TIME = new Date().toISOString();
+
+// Get git SHA dynamically
+function getGitSha(): string {
+  try {
+    return execSync('git rev-parse --short HEAD', { encoding: 'utf8' }).trim();
+  } catch {
+    return process.env.REPL_SLUG ? 'replit-deployment' : 'unknown';
+  }
+}
 
 const allowedOrigins = [
   process.env.APP_ORIGIN,
@@ -44,6 +57,17 @@ app.get('/healthz', (req: Request, res: Response) => {
 app.get('/contracts', (req: Request, res: Response) => {
   const tools = getToolNames();
   res.json({ tools });
+});
+
+app.get('/debug/version', (req: Request, res: Response) => {
+  res.json({
+    gitSha: getGitSha(),
+    buildTime: BUILD_TIME,
+    env: {
+      TOKEN_PROVIDER_URL: Boolean(CONFIG.TOKEN_PROVIDER_URL),
+      MCP_TOKEN_PROVIDER_SECRET: Boolean(CONFIG.MCP_TOKEN_PROVIDER_SECRET)
+    }
+  });
 });
 
 app.get('/debug/token-provider', (req: Request, res: Response) => {
