@@ -1,0 +1,262 @@
+Prompt for Agent-3 (paste verbatim)
+
+You’re updating the Opus MCP Repl. Goals:
+
+Fix public 502 & root route
+
+Add Google OAuth (Calendar + Gmail, read-only)
+
+Store refresh tokens per userId
+
+Make tools use stored tokens (removes GOOGLE_NOT_CONNECTED)
+
+Add connection status routes + simple connect page
+
+Extend smoke test to validate a real, authorized call
+
+A) Public 502 + root route
+
+In src/server.ts, add:
+
+app.set("trust proxy", true);
+app.get("/", (_req, res) => res.status(200).send("Opus MCP OK"));
+
+
+Keep binding to process.env.PORT and 0.0.0.0 (already done).
+
+B) Env vars (set via Replit Secrets)
+
+Create these secrets and reference in code:
+
+GOOGLE_CLIENT_ID
+
+GOOGLE_CLIENT_SECRET
+
+GOOGLE_OAUTH_REDIRECT_URI ← e.g. https://<public-host>/auth/google/callback
+
+JWT_SECRET (or reuse an existing app secret)
+
+MCP_SERVICE_TOKEN (already set, used for tool dev-auth)
+
+Scopes (read-only):
+
+https://www.googleapis.com/auth/calendar.readonly
+https://www.googleapis.com/auth/gmail.readonly
+
+C) Minimal token store
+
+Add src/lib/tokenStore.ts:
+
+type Tokens = { accessToken: string; refreshToken: string; expiryDate?: number };
+const mem = new Map<string, Tokens>(); // dev; swap to DB later
+
+export async function saveGoogleTokens(userId: string, t: Tokens) {
+  mem.set(userId, t);
+}
+export async function getGoogleTokens(userId: string) {
+  return mem.get(userId) || null;
+}
+export async function clearGoogleTokens(userId: string) {
+  mem.delete(userId);
+}
+
+D) Google OAuth routes
+
+Install googleapis: pnpm add googleapis
+
+Add src/lib/google.ts:
+
+import { google } from "googleapis";
+const { GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, GOOGLE_OAUTH_REDIRECT_URI } = process.env;
+
+export function getOAuthClient() {
+  if (!GOOGLE_CLIENT_ID || !GOOGLE_CLIENT_SECRET || !GOOGLE_OAUTH_REDIRECT_URI)
+    throw new Error("Google OAuth env not set");
+  return new google.auth.OAuth2(GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, GOOGLE_OAUTH_REDIRECT_URI);
+}
+
+export async function makeClientsFor(userId: string, tokens: any) {
+  const oauth2 = getOAuthClient();
+  oauth2.setCredentials(tokens);
+  return {
+    calendar: google.calendar({ version: "v3", auth: oauth2 }),
+    gmail: google.gmail({ version: "v1", auth: oauth2 }),
+  };
+}
+
+
+Add routes in src/server.ts:
+
+import { getOAuthClient, makeClientsFor } from "./lib/google";
+import { saveGoogleTokens, getGoogleTokens, clearGoogleTokens } from "./lib/tokenStore";
+
+// naive dev auth to resolve userId: from query or header (later replace with your app session)
+function requireUserId(req, res, next) {
+  const userId = req.query.userId || req.header("x-user-id");
+  if (!userId) return res.status(400).json({ error: "Missing userId" });
+  (req as any).userId = String(userId);
+  next();
+}
+
+app.get("/auth/google", requireUserId, async (req, res) => {
+  const userId = (req as any).userId;
+  const oauth2 = getOAuthClient();
+  const url = oauth2.generateAuthUrl({
+    access_type: "offline",
+    prompt: "consent",
+    scope: [
+      "https://www.googleapis.com/auth/calendar.readonly",
+      "https://www.googleapis.com/auth/gmail.readonly",
+    ],
+    state: encodeURIComponent(JSON.stringify({ userId })),
+  });
+  res.redirect(url);
+});
+
+app.get("/auth/google/callback", async (req, res) => {
+  const { code, state } = req.query as { code?: string; state?: string };
+  if (!code) return res.status(400).send("Missing code");
+  const { userId } = JSON.parse(decodeURIComponent(state || "{}"));
+  const oauth2 = getOAuthClient();
+  const { tokens } = await oauth2.getToken(code);
+  await saveGoogleTokens(userId, {
+    accessToken: tokens.access_token!,
+    refreshToken: tokens.refresh_token!,
+    expiryDate: tokens.expiry_date,
+  });
+  res.status(200).send("Google connected. You can close this tab.");
+});
+
+app.post("/auth/google/disconnect", requireUserId, async (req, res) => {
+  await clearGoogleTokens((req as any).userId);
+  res.json({ ok: true });
+});
+
+app.get("/me/google", requireUserId, async (req, res) => {
+  const t = await getGoogleTokens((req as any).userId);
+  res.json({ connected: !!t });
+});
+
+E) Make tools use stored tokens
+
+Update these handlers to fetch tokens and call real APIs:
+
+/mcp/calendar.next_events.v1
+
+/mcp/gmail.search_threads.v1
+
+/mcp/gmail.read_thread.v1
+
+Example (calendar.next_events.v1):
+
+import { devToolAuth } from "./middleware/devToolAuth";
+import { getGoogleTokens } from "./lib/tokenStore";
+import { makeClientsFor } from "./lib/google";
+
+app.post("/mcp/calendar.next_events.v1", devToolAuth, async (req, res) => {
+  const { userId, timeMin, timeMax, maxResults = 50 } = req.body || {};
+  if (!userId) return res.status(400).json({ error: "Missing userId" });
+
+  const tokens = await getGoogleTokens(userId);
+  if (!tokens) return res.status(401).json({ error: { code: "GOOGLE_NOT_CONNECTED", message: "Connect Google first" }});
+
+  const { calendar } = await makeClientsFor(userId, {
+    access_token: tokens.accessToken,
+    refresh_token: tokens.refreshToken,
+    expiry_date: tokens.expiryDate,
+  });
+
+  const { data } = await calendar.events.list({
+    calendarId: "primary",
+    timeMin, timeMax, singleEvents: true, orderBy: "startTime", maxResults
+  });
+
+  const events = (data.items || []).map(e => ({
+    id: e.id, summary: e.summary,
+    attendees: (e.attendees || []).map(a => a.email).filter(Boolean),
+    start: e.start?.dateTime || e.start?.date,
+    end: e.end?.dateTime || e.end?.date,
+    hangoutLink: e.hangoutLink || null,
+  }));
+
+  res.json({ events });
+});
+
+
+Do similar for:
+
+gmail.search_threads.v1 → use gmail.users.threads.list({ userId:"me", q, maxResults }), then assemble { id, snippet } from threads.get.
+
+gmail.read_thread.v1 → return { id, messages:[{ from, to, date, snippet }] } (no raw bodies).
+
+F) Simple connect page (dev)
+
+Add a barebones HTML at /connect:
+
+app.get("/connect", (req, res) => {
+  const userId = req.query.userId || "test-user";
+  const host = process.env.REPLIT_URL || `https://${req.headers["x-forwarded-host"]}`;
+  res.status(200).send(`
+    <html><body>
+      <h3>Connect Google</h3>
+      <p>User: <code>${userId}</code></p>
+      <a href="${host}/auth/google?userId=${userId}">Authorize Google</a>
+      <hr/>
+      <p>Status: <a href="${host}/me/google?userId=${userId}">/me/google</a></p>
+    </body></html>
+  `);
+});
+
+G) Extend smoke test
+
+Update scripts/smoke.sh to include:
+
+echo "→ Me/Google status"
+curl -fsS "$HOST/me/google?userId=${USER_ID:-test-user}" | ${JQ}
+
+echo "→ Calendar (should succeed after connect)"
+curl -fsS -X POST "$HOST/mcp/calendar.next_events.v1" \
+  -H "Authorization: Bearer ${MCP_SERVICE_TOKEN}" \
+  -H "Content-Type: application/json" \
+  --data "{\"userId\":\"${USER_ID:-test-user}\",\"timeMin\":\"$(date -u +%Y-%m-%dT00:00:00Z)\",\"timeMax\":\"$(date -u -d '+7 day' +%Y-%m-%dT00:00:00Z)\"}" | ${JQ}
+
+
+package.json already has "smoke": "bash scripts/smoke.sh $HOST".
+
+Manual steps to test:
+
+Start: NODE_ENV=development DEBUG=mcp:* npm run dev
+
+Open: https://<public-host>/connect?userId=test-user → click Authorize Google
+
+Export and run:
+
+export HOST='https://<public-host>'
+export MCP_SERVICE_TOKEN='<your-token-from-secrets>'
+export USER_ID='test-user'
+npm run smoke
+
+
+Expected: me/google shows connected:true, and calendar.next_events.v1 returns real events.
+
+H) (Optional) Nice-to-haves
+
+Add GET /admin/connections to list which userIds are connected (dev only).
+
+Add graceful 401 handler suggesting /connect?userId=<id> when tools detect no tokens.
+
+Deliverables:
+
+New OAuth routes, token store, tool updates, connect page
+
+Extended smoke test
+
+README updated with “Connect Google” steps
+
+Once this is in and passing, we’ll:
+
+Register these three MCP tools in Agent Builder.
+
+Add one backend route in your App to “Generate Prep” (agent run).
+
+Click “Generate” next to a meeting → verify a real prep shows up.

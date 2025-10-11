@@ -13,6 +13,9 @@ import { execSync } from 'child_process';
 
 const app: Express = express();
 
+// Trust proxy for Replit deployment
+app.set("trust proxy", true);
+
 // Capture build time at server start
 const BUILD_TIME = new Date().toISOString();
 
@@ -47,7 +50,7 @@ app.use((req: Request, res: Response, next: NextFunction) => {
 });
 
 app.get('/', (req: Request, res: Response) => {
-  res.type('text/plain').send('Opus MCP OK');
+  res.status(200).send('Opus MCP OK');
 });
 
 app.get('/healthz', (req: Request, res: Response) => {
