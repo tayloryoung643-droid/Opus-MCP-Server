@@ -10,6 +10,8 @@ import { CONFIG } from './config.js';
 import { MCPToolContext } from './contracts/index.js';
 import { getLastFetch } from './tokenProvider.js';
 import { execSync } from 'child_process';
+import { getOAuthClient, makeClientsFor } from './lib/google.js';
+import { saveGoogleTokens, getGoogleTokens, clearGoogleTokens, listConnectedUsers } from './lib/tokenStore.js';
 
 const app: Express = express();
 
@@ -101,6 +103,126 @@ app.get('/debug/token-provider', (req: Request, res: Response) => {
       timestamp: lastFetch.timestamp
     } : null
   });
+});
+
+// Helper to resolve userId from query or header (dev auth)
+function requireUserId(req: Request, res: Response, next: NextFunction) {
+  const userId = req.query.userId || req.header('x-user-id');
+  if (!userId) {
+    return res.status(400).json({ error: 'Missing userId (provide ?userId=... or x-user-id header)' });
+  }
+  (req as any).userId = String(userId);
+  next();
+}
+
+// Google OAuth routes
+app.get('/auth/google', requireUserId, async (req: Request, res: Response) => {
+  try {
+    const userId = (req as any).userId;
+    const oauth2 = getOAuthClient();
+    const url = oauth2.generateAuthUrl({
+      access_type: 'offline',
+      prompt: 'consent',
+      scope: [
+        'https://www.googleapis.com/auth/calendar.readonly',
+        'https://www.googleapis.com/auth/gmail.readonly',
+      ],
+      state: encodeURIComponent(JSON.stringify({ userId })),
+    });
+    res.redirect(url);
+  } catch (error) {
+    res.status(500).json({ error: error instanceof Error ? error.message : 'OAuth init failed' });
+  }
+});
+
+app.get('/auth/google/callback', async (req: Request, res: Response) => {
+  try {
+    const { code, state } = req.query as { code?: string; state?: string };
+    if (!code) {
+      return res.status(400).send('Missing authorization code');
+    }
+    const { userId } = JSON.parse(decodeURIComponent(state || '{}'));
+    if (!userId) {
+      return res.status(400).send('Missing userId in state');
+    }
+    
+    const oauth2 = getOAuthClient();
+    const { tokens } = await oauth2.getToken(code);
+    
+    await saveGoogleTokens(userId, {
+      accessToken: tokens.access_token!,
+      refreshToken: tokens.refresh_token!,
+      expiryDate: tokens.expiry_date,
+    });
+    
+    res.status(200).send('✅ Google connected successfully! You can close this tab and return to your app.');
+  } catch (error) {
+    console.error('[OAuth] Callback error:', error);
+    res.status(500).send(`OAuth callback failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
+  }
+});
+
+app.post('/auth/google/disconnect', requireUserId, async (req: Request, res: Response) => {
+  try {
+    await clearGoogleTokens((req as any).userId);
+    res.json({ ok: true });
+  } catch (error) {
+    res.status(500).json({ error: error instanceof Error ? error.message : 'Disconnect failed' });
+  }
+});
+
+app.get('/me/google', requireUserId, async (req: Request, res: Response) => {
+  try {
+    const tokens = await getGoogleTokens((req as any).userId);
+    res.json({ connected: !!tokens });
+  } catch (error) {
+    res.status(500).json({ error: error instanceof Error ? error.message : 'Status check failed' });
+  }
+});
+
+app.get('/admin/connections', async (req: Request, res: Response) => {
+  try {
+    const users = await listConnectedUsers();
+    res.json({ connectedUsers: users });
+  } catch (error) {
+    res.status(500).json({ error: error instanceof Error ? error.message : 'Failed to list connections' });
+  }
+});
+
+// Connect page for easy OAuth flow
+app.get('/connect', (req: Request, res: Response) => {
+  const userId = req.query.userId || 'test-user';
+  const replitDomain = process.env.REPLIT_DOMAINS;
+  const host = replitDomain ? `https://${replitDomain}` : (process.env.REPLIT_URL || `https://${req.headers['x-forwarded-host']}`);
+  
+  res.status(200).send(`
+    <!DOCTYPE html>
+    <html>
+    <head>
+      <title>Connect Google - Opus MCP</title>
+      <style>
+        body { font-family: system-ui, sans-serif; max-width: 600px; margin: 50px auto; padding: 20px; }
+        h3 { color: #333; }
+        code { background: #f4f4f4; padding: 2px 6px; border-radius: 3px; }
+        a { color: #0066cc; text-decoration: none; padding: 10px 20px; background: #0066cc; color: white; border-radius: 5px; display: inline-block; }
+        a:hover { background: #0052a3; }
+        .status { margin-top: 30px; padding: 15px; background: #f9f9f9; border-radius: 5px; }
+      </style>
+    </head>
+    <body>
+      <h3>🔗 Connect Google Services</h3>
+      <p>User: <code>${userId}</code></p>
+      <p>
+        <a href="${host}/auth/google?userId=${userId}">Authorize Google Calendar & Gmail</a>
+      </p>
+      <div class="status">
+        <h4>Connection Status</h4>
+        <p>Check status: <a href="${host}/me/google?userId=${userId}" target="_blank" style="background: #666; padding: 5px 10px; font-size: 14px;">/me/google</a></p>
+        <p>Disconnect: <code>POST ${host}/auth/google/disconnect?userId=${userId}</code></p>
+      </div>
+    </body>
+    </html>
+  `);
 });
 
 app.post('/mcp/:tool', bearerAuth, async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {

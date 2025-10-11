@@ -2,22 +2,39 @@
 
 A standalone Model Context Protocol (MCP) service providing HTTP REST API access to calendar, CRM, email, and database tools.
 
-## Test in 60 Seconds
+## Quick Start
+
+### 1. Connect Google (First Time Setup)
+
+Before tools can access Google Calendar & Gmail, connect your Google account:
+
+1. **Start server**: `npm run dev`
+2. **Open connect page**: Navigate to `https://<your-public-url>/connect?userId=<your-user-id>`
+3. **Authorize**: Click "Authorize Google Calendar & Gmail" and complete OAuth flow
+4. **Verify**: Check status at `/me/google?userId=<your-user-id>` - should show `{"connected":true}`
+
+> **Required Secrets** (set in Replit Secrets):
+> - `GOOGLE_CLIENT_ID` - Your Google OAuth client ID
+> - `GOOGLE_CLIENT_SECRET` - Your Google OAuth client secret  
+> - `GOOGLE_OAUTH_REDIRECT_URI` - Your callback URL (e.g., `https://<public-host>/auth/google/callback`)
+> - `MCP_SERVICE_TOKEN` - Service auth token (min 10 chars)
+
+### 2. Test in 60 Seconds
 
 1. **Start server**: `npm run dev`
 2. **Copy your public URL** from the console log (looks like `https://<repl-name>.<username>.repl.co`)
 3. **Set env for this shell**:
    ```bash
    export HOST='https://<your-public-host>'
-   export DEV_LOCAL_TOOL_KEY='<your-MCP_SERVICE_TOKEN>'
+   export MCP_SERVICE_TOKEN='<your-token>'
+   export USER_ID='<your-user-id>'  # Optional, defaults to test-user
    ```
-   > Note: `DEV_LOCAL_TOOL_KEY` should be set to the same value as your `MCP_SERVICE_TOKEN` secret
 4. **Run smoke test**:
    ```bash
    npm run smoke
    ```
 
-Expected output: Health, contracts, and calendar tool responses (or clear error messages if integrations not connected).
+Expected output: Health, contracts, connection status, and calendar data (if connected) or helpful error messages.
 
 ## Features
 
@@ -55,10 +72,21 @@ The console should show:
 
 ### Endpoints
 
-- **Health Check**: `GET /healthz` - Returns `{"ok": true}`
-- **Contracts**: `GET /contracts` - Returns all tool schemas
-- **Root**: `GET /` - Returns "Opus MCP OK"
-- **Tools**: `POST /tools/<tool-name>` - Execute a tool (requires auth)
+**Public Endpoints:**
+- `GET /` - Returns "Opus MCP OK"
+- `GET /healthz` - Health check
+- `GET /contracts` - List all tools with paths
+- `GET /connect?userId=<id>` - OAuth connection page
+- `GET /me/google?userId=<id>` - Check Google connection status
+- `GET /admin/connections` - List all connected users
+
+**OAuth Flow:**
+- `GET /auth/google?userId=<id>` - Initiate Google OAuth
+- `GET /auth/google/callback` - OAuth callback (automatic)
+- `POST /auth/google/disconnect?userId=<id>` - Disconnect Google
+
+**Tool Endpoints (require bearer auth):**
+- `POST /mcp/<tool-name>` - Execute a tool (requires `Authorization: Bearer <token>`)
 
 ### Troubleshooting
 

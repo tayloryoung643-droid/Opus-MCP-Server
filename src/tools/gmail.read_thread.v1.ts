@@ -1,5 +1,7 @@
 import { gmailReadThreadSchemaV1, type GmailMessage, type MCPToolContext } from '../contracts/index.js';
-import { HttpError, integrationError, badRequest } from '../errors.js';
+import { HttpError, badRequest } from '../errors.js';
+import { getGoogleTokens } from '../lib/tokenStore.js';
+import { makeClientsFor } from '../lib/google.js';
 
 export const name = 'gmail.read_thread.v1';
 export const version = 'v1';
@@ -14,59 +16,58 @@ export async function handler(
 
   try {
     const params = inputSchema.parse(args);
-    const userId = params.userId;
 
     if (!params.threadId) {
       throw badRequest('threadId is required');
     }
 
-    const googleIntegration = await context.storage.getGoogleIntegration(userId, context.requestId);
-    if (!googleIntegration?.accessToken) {
+    // Check if user has connected Google
+    const tokens = await getGoogleTokens(params.userId);
+    if (!tokens) {
       throw new HttpError(
         401,
         'GOOGLE_NOT_CONNECTED',
         'Gmail not connected',
-        { hint: 'Connect in Settings → Integrations' }
+        { hint: `Connect Google at /connect?userId=${params.userId}` }
       );
     }
 
-    const tokens = {
-      access_token: googleIntegration.accessToken,
-      refresh_token: googleIntegration.refreshToken,
-      expiry_date: googleIntegration.tokenExpiry?.getTime()
-    };
+    // Create Gmail client with stored tokens
+    const { gmail } = await makeClientsFor(params.userId, {
+      access_token: tokens.accessToken,
+      refresh_token: tokens.refreshToken,
+      expiry_date: tokens.expiryDate,
+    });
 
-    // Try to load the Gmail service
-    let readThread, extractMessageParts;
-    try {
-      const module = await import('../../server/services/gmail.js');
-      readThread = module.readThread;
-      extractMessageParts = module.extractMessageParts;
-    } catch (importError: any) {
-      throw new HttpError(
-        401,
-        'GOOGLE_NOT_CONNECTED',
-        'Gmail not connected',
-        { hint: 'Connect in Settings → Integrations' }
-      );
-    }
-    const thread = await readThread(tokens, params.threadId);
-    const messages = (thread.messages || []).map((m: any) => {
-      const parts = extractMessageParts(m);
+    // Fetch thread from Gmail API
+    const { data } = await gmail.users.threads.get({
+      userId: 'me',
+      id: params.threadId,
+      format: 'full',
+    });
+
+    // Extract messages from thread
+    const messages: GmailMessage[] = (data.messages || []).map(msg => {
+      const headers = msg.payload?.headers || [];
+      const getHeader = (name: string) => 
+        headers.find(h => h.name?.toLowerCase() === name.toLowerCase())?.value || '';
+
       return {
-        id: parts.id,
-        date: parts.headers["date"],
-        from: parts.headers["from"],
-        to: parts.headers["to"],
-        subject: parts.headers["subject"],
-        snippet: parts.snippet,
-        body: parts.body
+        id: msg.id || '',
+        date: getHeader('date'),
+        from: getHeader('from'),
+        to: getHeader('to'),
+        subject: getHeader('subject'),
+        snippet: msg.snippet || '',
       };
     });
 
     console.log(`[MCP-Tool:${name}] Read ${messages.length} messages from thread`);
 
-    return { threadId: thread.id, messages };
+    return { 
+      threadId: data.id || params.threadId, 
+      messages 
+    };
   } catch (error) {
     console.error(`[MCP-Tool:${name}] ERROR:`, error);
     throw error;

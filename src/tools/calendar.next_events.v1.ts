@@ -3,7 +3,9 @@ import {
   type CalendarEvent,
   type MCPToolContext
 } from '../contracts/index.js';
-import { HttpError, integrationError } from '../errors.js';
+import { HttpError } from '../errors.js';
+import { getGoogleTokens } from '../lib/tokenStore.js';
+import { makeClientsFor } from '../lib/google.js';
 
 export const name = 'calendar.next_events.v1';
 export const version = 'v1';
@@ -20,95 +22,83 @@ export async function handler(
   try {
     const params = inputSchema.parse(args);
 
-    // Check integration status first
-    const integration = await context.storage.getGoogleIntegration(context.userId, context.requestId);
-    if (!integration?.isActive) {
+    // Check if user has connected Google
+    const tokens = await getGoogleTokens(params.userId);
+    if (!tokens) {
       throw new HttpError(
         401,
         'GOOGLE_NOT_CONNECTED',
         'Google Calendar not connected',
-        { hint: 'Connect in Settings → Integrations' }
+        { hint: `Connect Google at /connect?userId=${params.userId}` }
       );
     }
 
-    // Try to load the Google Calendar service
-    let googleCalendarService;
-    try {
-      const module = await import('../../server/services/googleCalendar.js');
-      googleCalendarService = module.googleCalendarService;
-    } catch (importError: any) {
-      // Service not installed or OAuth not configured
-      console.error(`[MCP-Tool:${name}] Failed to import Google Calendar service:`, importError);
-      throw new HttpError(
-        401,
-        'GOOGLE_NOT_CONNECTED',
-        'Google Calendar not connected',
-        { hint: 'Connect in Settings → Integrations' }
-      );
-    }
+    // Create Google Calendar client with stored tokens
+    const { calendar } = await makeClientsFor(params.userId, {
+      access_token: tokens.accessToken,
+      refresh_token: tokens.refreshToken,
+      expiry_date: tokens.expiryDate,
+    });
 
-    let events: any[] = [];
-
-    if (params.eventId) {
-      const event = await googleCalendarService.getEventById(context.userId, params.eventId);
-      if (event) events = [event];
-    } else if (params.contactEmail) {
-      const allEvents = await googleCalendarService.getUpcomingEvents(context.userId, 50);
-      events = allEvents.filter((event: any) => {
-        if (!event.attendees) return false;
-        return event.attendees.some((attendee: any) => attendee.email === params.contactEmail);
-      });
-    } else if (params.timeRange) {
-      events = await googleCalendarService.getEventsInRange(
-        context.userId,
-        params.timeRange.start,
-        params.timeRange.end
-      );
+    // Determine time range
+    let timeMin: string | undefined;
+    let timeMax: string | undefined;
+    
+    if (params.timeRange) {
+      timeMin = params.timeRange.start;
+      timeMax = params.timeRange.end;
     } else if (params.startIso && params.endIso) {
-      events = await googleCalendarService.getEventsInRange(
-        context.userId,
-        params.startIso,
-        params.endIso
-      );
+      timeMin = params.startIso;
+      timeMax = params.endIso;
     } else if (params.window) {
-      events = await googleCalendarService.getEventsInRange(
-        context.userId,
-        params.window.startIso,
-        params.window.endIso
-      );
+      timeMin = params.window.startIso;
+      timeMax = params.window.endIso;
     } else if (params.daysAhead) {
-      const now = new Date();
-      const futureDate = new Date(now.getTime() + (params.daysAhead * 24 * 60 * 60 * 1000));
-      events = await googleCalendarService.getEventsInRange(
-        context.userId,
-        now.toISOString(),
-        futureDate.toISOString()
-      );
+      timeMin = new Date().toISOString();
+      timeMax = new Date(Date.now() + params.daysAhead * 24 * 60 * 60 * 1000).toISOString();
     } else {
-      const allEvents = await googleCalendarService.getUpcomingEvents(context.userId, 200);
-      const now = new Date();
-      const next24Hours = new Date(now.getTime() + (24 * 60 * 60 * 1000));
-
-      events = allEvents.filter((event: any) => {
-        const eventStartStr = event.start?.dateTime ?? (event.start?.date ? `${event.start.date}T00:00:00Z` : null);
-        if (!eventStartStr || !event.start?.dateTime) return false;
-        const eventTime = new Date(eventStartStr);
-        return eventTime <= next24Hours;
-      }).slice(0, 10);
+      timeMin = new Date().toISOString();
+      timeMax = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
     }
 
+    // Fetch events from Google Calendar
+    const { data } = await calendar.events.list({
+      calendarId: 'primary',
+      timeMin,
+      timeMax,
+      singleEvents: true,
+      orderBy: 'startTime',
+      maxResults: params.maxResults || 50,
+    });
+
+    let events = data.items || [];
+
+    // Filter by eventId if specified
+    if (params.eventId) {
+      events = events.filter(e => e.id === params.eventId);
+    }
+
+    // Filter by contactEmail if specified
+    if (params.contactEmail) {
+      events = events.filter(event => 
+        event.attendees?.some(attendee => attendee.email === params.contactEmail)
+      );
+    }
+
+    // Transform to our schema
     const transformedEvents: CalendarEvent[] = events.map(event => ({
-      id: event.id,
+      id: event.id || '',
       summary: event.summary || 'No Title',
-      start: event.start,
-      end: event.end,
-      attendees: params.includeAttendees ? event.attendees?.map((attendee: any) => ({
-        email: attendee.email,
+      start: event.start?.dateTime || event.start?.date || '',
+      end: event.end?.dateTime || event.end?.date || '',
+      attendees: params.includeAttendees ? event.attendees?.map(attendee => ({
+        email: attendee.email || '',
         displayName: attendee.displayName,
-        responseStatus: attendee.responseStatus
+        responseStatus: attendee.responseStatus,
       })) : undefined,
       description: event.description,
-      location: event.location
+      location: event.location,
+      hangoutLink: event.hangoutLink,
     }));
 
     const duration = Date.now() - startTime;
