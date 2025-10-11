@@ -4,8 +4,9 @@ import {
   type MCPToolContext
 } from '../contracts/index.js';
 import { HttpError } from '../errors.js';
-import { getGoogleTokens } from '../lib/tokenStore.js';
+import { getGoogleTokens, saveGoogleTokens } from '../lib/tokenStore.js';
 import { makeClientsFor } from '../lib/google.js';
+import { fetchGoogleTokens } from '../lib/tokenProvider.js';
 
 export const name = 'calendar.next_events.v1';
 export const version = 'v1';
@@ -22,8 +23,19 @@ export async function handler(
   try {
     const params = inputSchema.parse(args);
 
-    // Check if user has connected Google
-    const tokens = await getGoogleTokens(params.userId);
+    // Check if user has connected Google (local tokens first, then token provider)
+    let tokens = await getGoogleTokens(params.userId);
+    
+    if (!tokens) {
+      console.log(`[MCP-Tool:${name}] No local tokens found, trying token provider...`);
+      tokens = await fetchGoogleTokens(params.userId);
+      
+      if (tokens) {
+        console.log(`[MCP-Tool:${name}] Token provider returned tokens, saving locally`);
+        await saveGoogleTokens(params.userId, tokens);
+      }
+    }
+    
     if (!tokens) {
       throw new HttpError(
         401,
