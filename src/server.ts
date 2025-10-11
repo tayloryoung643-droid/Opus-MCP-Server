@@ -68,10 +68,10 @@ app.get('/contracts', (req: Request, res: Response) => {
     path: `/mcp/${name}`
   }));
   
-  // Add direct route tools
+  // Add direct route tool (prep.save.v1)
+  // Note: prep.generate.v1 is already in the tool registry
   toolsWithPaths.push(
-    { name: 'prep.save.v1', path: '/mcp/prep.save.v1' },
-    { name: 'prep.generate.v1', path: '/mcp/prep.generate.v1' }
+    { name: 'prep.save.v1', path: '/mcp/prep.save.v1' }
   );
   
   res.json({ tools: toolsWithPaths });
@@ -313,7 +313,7 @@ app.post('/mcp/prep.generate.v1', devToolAuth, async (req: Request, res: Respons
     ],
     questions: [
       'What triggered this meeting?', 
-      'Who's the economic buyer?', 
+      'Who is the economic buyer?', 
       'What does success look like?', 
       'Timeline?', 
       'Risks?'
