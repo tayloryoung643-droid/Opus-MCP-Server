@@ -12,6 +12,7 @@ import { getLastFetch } from './tokenProvider.js';
 import { execSync } from 'child_process';
 import { getOAuthClient, makeClientsFor } from './lib/google.js';
 import { saveGoogleTokens, getGoogleTokens, clearGoogleTokens, listConnectedUsers, generateOAuthState, validateOAuthState } from './lib/tokenStore.js';
+import { fetchGoogleTokens } from './lib/tokenProvider.js';
 import { savePrep, getPrep, listPreps } from './lib/prepStore.js';
 import { devToolAuth } from './middleware/devToolAuth.js';
 
@@ -192,7 +193,20 @@ app.post('/auth/google/disconnect', requireUserId, async (req: Request, res: Res
 
 app.get('/me/google', requireUserId, async (req: Request, res: Response) => {
   try {
-    const tokens = await getGoogleTokens((req as any).userId);
+    const userId = (req as any).userId;
+    let tokens = await getGoogleTokens(userId);
+    
+    // Try token provider if no local tokens
+    if (!tokens) {
+      console.log(`[/me/google] No local tokens for userId=${userId}, trying token provider...`);
+      tokens = await fetchGoogleTokens(userId);
+      
+      if (tokens) {
+        console.log(`[/me/google] Token provider returned tokens, saving locally`);
+        await saveGoogleTokens(userId, tokens);
+      }
+    }
+    
     res.json({ connected: !!tokens });
   } catch (error) {
     res.status(500).json({ error: error instanceof Error ? error.message : 'Status check failed' });
