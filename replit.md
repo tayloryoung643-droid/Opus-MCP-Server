@@ -203,13 +203,40 @@ Environment-based configuration with validation:
 - Optional: Google and Salesforce OAuth credentials (for future integration)
 - Schema validation via Zod ensures all required vars are present
 
+## Smoke Testing
+
+The service includes a comprehensive smoke test script (`scripts/smoke.sh`) that validates all critical endpoints:
+
+**Running the Smoke Test:**
+```bash
+export HOST='https://<your-public-url>'
+export MCP_SERVICE_TOKEN='<your-token>'
+npm run smoke
+```
+
+**What it Tests:**
+1. Health endpoint (`GET /healthz`)
+2. Contracts endpoint (`GET /contracts`) - shows all tools with paths
+3. Debug endpoint (`GET /debug/token-provider`) - shows token provider config
+4. Tool execution (`POST /mcp/calendar.next_events.v1`) - validates bearer auth and tool execution
+
+**Expected Behavior:**
+- All endpoints return JSON responses
+- Tool test returns either:
+  - `200 OK` with event data (if Google Calendar connected)
+  - `401 GOOGLE_NOT_CONNECTED` (if integration not set up) - this is expected and valid
+
+The smoke test gracefully handles both success and expected integration errors, making it safe to run even when external services aren't configured.
+
 ## Deployment
 
 The MCP service is deployed as a standalone Repl on port 8000:
-- **Service URL**: `https://e4bedc74-a6dc-4338-9b37-70398c52b12d-00-1uas4iu27ac85.spock.replit.dev`
+- **Service URL**: Automatically detected from `REPLIT_DOMAINS` environment variable
+- **Public URL Logging**: Server startup logs display the public URL for easy copy-paste
 - **Health Check**: `GET /healthz` returns `{"ok": true}`
-- **Contracts**: `GET /contracts` returns all 8 available tools
+- **Contracts**: `GET /contracts` returns all 8 available tools with paths
 - **Authentication**: All tool endpoints require `Authorization: Bearer <MCP_SERVICE_TOKEN>` header
+- **Server Safety**: Uses `globalThis` guard to prevent duplicate server starts on hot reloads
 
 ### Available Tools
 1. `calendar.next_events.v1` - Get upcoming calendar events
