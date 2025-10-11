@@ -12,7 +12,7 @@ import { getLastFetch } from './tokenProvider.js';
 import { execSync } from 'child_process';
 import { getOAuthClient, makeClientsFor } from './lib/google.js';
 import { saveGoogleTokens, getGoogleTokens, clearGoogleTokens, listConnectedUsers, generateOAuthState, validateOAuthState } from './lib/tokenStore.js';
-import { fetchGoogleTokens } from './lib/tokenProvider.js';
+import { fetchGoogleTokens, getTokenProviderStatus } from './lib/tokenProvider.js';
 import { savePrep, getPrep, listPreps } from './lib/prepStore.js';
 import { devToolAuth } from './middleware/devToolAuth.js';
 
@@ -90,7 +90,8 @@ app.get('/debug/version', (req: Request, res: Response) => {
 });
 
 app.get('/debug/token-provider', (req: Request, res: Response) => {
-  const lastFetch = getLastFetch();
+  const oldLastFetch = getLastFetch();
+  const newProviderStatus = getTokenProviderStatus();
   
   let urlHost: string | null = null;
   if (CONFIG.TOKEN_PROVIDER_URL) {
@@ -102,16 +103,17 @@ app.get('/debug/token-provider', (req: Request, res: Response) => {
   }
   
   res.json({
-    tokenProviderUrlSet: Boolean(CONFIG.TOKEN_PROVIDER_URL),
-    secretSet: Boolean(CONFIG.MCP_TOKEN_PROVIDER_SECRET),
+    tokenProviderUrlSet: newProviderStatus.tokenProviderUrlSet,
+    secretSet: newProviderStatus.secretSet,
     urlHost,
-    lastFetch: lastFetch.rid ? {
-      rid: lastFetch.rid,
-      userId: lastFetch.userId,
-      status: lastFetch.status,
-      receivedKeys: lastFetch.receivedKeys,
-      timestamp: lastFetch.timestamp
-    } : null
+    // Include both old and new last fetch data for debugging
+    lastFetch: newProviderStatus.lastFetch || (oldLastFetch.rid ? {
+      rid: oldLastFetch.rid,
+      userId: oldLastFetch.userId,
+      status: oldLastFetch.status,
+      receivedKeys: oldLastFetch.receivedKeys,
+      timestamp: oldLastFetch.timestamp
+    } : null)
   });
 });
 
