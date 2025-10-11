@@ -32,7 +32,7 @@ export async function handler(
     // Try to load the Salesforce service
     let salesforceCrmService;
     try {
-      const module = await import('../../../server/services/salesforceCrm.js');
+      const module = await import('../../server/services/salesforceCrm.js');
       salesforceCrmService = module.salesforceCrmService;
     } catch (importError: any) {
       throw new HttpError(

@@ -34,10 +34,11 @@ export async function handler(
     // Try to load the Google Calendar service
     let googleCalendarService;
     try {
-      const module = await import('../../../server/services/googleCalendar.js');
+      const module = await import('../../server/services/googleCalendar.js');
       googleCalendarService = module.googleCalendarService;
     } catch (importError: any) {
       // Service not installed or OAuth not configured
+      console.error(`[MCP-Tool:${name}] Failed to import Google Calendar service:`, importError);
       throw new HttpError(
         401,
         'GOOGLE_NOT_CONNECTED',

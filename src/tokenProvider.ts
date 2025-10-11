@@ -132,17 +132,25 @@ export async function getTokensFor(
       fetchedAt: now
     };
 
-    if (data.google) {
+    if (data.google?.access_token) {
+      console.log(`[TokenProvider:${rid}] Raw Google data has: access_token=${!!data.google.access_token}, refresh_token=${!!data.google.refresh_token}, expiry_date=${!!data.google.expiry_date}`);
+      
+      const expiryDate = data.google.expiry_date 
+        ? new Date(data.google.expiry_date)
+        : new Date(Date.now() + 3600000); // Default to 1 hour from now if missing
+      
       tokens.google = {
         accessToken: data.google.access_token,
         refreshToken: data.google.refresh_token,
-        tokenExpiry: new Date(data.google.expiry_date),
+        tokenExpiry: expiryDate,
         isActive: true
       };
       console.log(`[TokenProvider:${rid}] Cached Google tokens for userId=${userId}, expires=${tokens.google.tokenExpiry.toISOString()}`);
+    } else if (data.google) {
+      console.log(`[TokenProvider:${rid}] Google object present but missing access_token - skipping cache`);
     }
 
-    if (data.salesforce) {
+    if (data.salesforce?.access_token) {
       tokens.salesforce = {
         accessToken: data.salesforce.access_token,
         refreshToken: data.salesforce.refresh_token,
@@ -150,6 +158,8 @@ export async function getTokensFor(
         isActive: true
       };
       console.log(`[TokenProvider:${rid}] Cached Salesforce tokens for userId=${userId}`);
+    } else if (data.salesforce) {
+      console.log(`[TokenProvider:${rid}] Salesforce object present but missing access_token - skipping cache`);
     }
 
     // Store in cache

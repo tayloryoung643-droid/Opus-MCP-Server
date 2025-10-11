@@ -72,9 +72,12 @@ Preferred communication style: Simple, everyday language.
 - Request ID propagation for end-to-end observability
 - Safe logging: logs rid, userId, urlHost, status, receivedKeys - **never** token values
 - Debug endpoint at `/debug/token-provider` shows config and last fetch details
+- Token validation: only caches tokens if `access_token` field is present; skips empty objects
 - Returns null when tokens unavailable → tools return `*_NOT_CONNECTED` errors
 
 **Rationale**: Centralized token management in the App with MCP as a token consumer reduces complexity and security risk. Caching improves performance while auth boundary remains in the App.
+
+**Known Issue**: App's `/internal/integrations/tokens` endpoint currently returns empty integration objects (e.g., `{"google": {}, "salesforce": {}}`) without actual `access_token` fields. MCP service validates and skips caching these invalid tokens, returning appropriate `*_NOT_CONNECTED` errors.
 
 ### Context Resolution Pattern
 

@@ -39,7 +39,7 @@ export async function handler(
     // Try to load the Gmail service
     let readThread, extractMessageParts;
     try {
-      const module = await import('../../../server/services/gmail.js');
+      const module = await import('../../server/services/gmail.js');
       readThread = module.readThread;
       extractMessageParts = module.extractMessageParts;
     } catch (importError: any) {

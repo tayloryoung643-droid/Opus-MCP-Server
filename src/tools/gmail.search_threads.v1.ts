@@ -35,7 +35,7 @@ export async function handler(
     // Try to load the Gmail service
     let listRecentThreads;
     try {
-      const module = await import('../../../server/services/gmail.js');
+      const module = await import('../../server/services/gmail.js');
       listRecentThreads = module.listRecentThreads;
     } catch (importError: any) {
       throw new HttpError(
