@@ -1,0 +1,123 @@
+Prompt 1 — Agent-3 (MCP Repl)
+
+Goal: add a “save prep” tool + a tiny in-memory store so the Agent can persist results, and expose one orchestration endpoint the App can call.
+
+Do this in the Opus MCP Repl:
+
+Add a minimal Prep store + endpoints
+
+Create src/lib/prepStore.ts:
+
+type Sections = {
+  snapshot: string;
+  lastContact: string[];
+  priorities: string[];
+  risks: { risk: string; counter: string }[];
+  questions: string[];
+  agenda: string[];
+  notes?: string;
+};
+type Prep = { id: string; userId: string; eventId: string; sections: Sections; createdAt: number };
+
+const db = new Map<string, Prep>();
+
+export function savePrep(p: Omit<Prep, "id"|"createdAt">): Prep {
+  const id = `${p.userId}_${p.eventId}_${Date.now()}`;
+  const prep: Prep = { id, createdAt: Date.now(), ...p };
+  db.set(id, prep);
+  return prep;
+}
+export function getPrep(id: string) { return db.get(id) || null; }
+export function listPreps(userId: string) { return [...db.values()].filter(p => p.userId === userId).sort((a,b)=>b.createdAt-a.createdAt); }
+
+
+In src/server.ts add routes:
+
+import { savePrep, getPrep, listPreps } from "./lib/prepStore";
+
+app.get("/prep/:id", (req, res) => {
+  const p = getPrep(req.params.id);
+  if (!p) return res.status(404).json({ error: "Not found" });
+  res.json(p);
+});
+
+app.get("/prep", (req, res) => {
+  const userId = String(req.query.userId || "");
+  if (!userId) return res.status(400).json({ error: "Missing userId" });
+  res.json({ preps: listPreps(userId) });
+});
+
+
+Expose a new MCP tool: prep.save.v1
+
+In src/server.ts, below your other tool routes:
+
+import { devToolAuth } from "./middleware/devToolAuth";
+
+app.post("/mcp/prep.save.v1", devToolAuth, async (req, res) => {
+  const { userId, eventId, sections } = req.body || {};
+  if (!userId || !eventId || !sections) return res.status(400).json({ error: "Missing input" });
+  const saved = savePrep({ userId, eventId, sections });
+  res.json({ prepId: saved.id, url: `/prep/${saved.id}` });
+});
+
+
+Update /contracts so it includes prep.save.v1 (your existing contracts function already lists from registry; add this name/path).
+
+Add one orchestration HTTP (optional) for manual testing
+
+import { makeClientsFor } from "./lib/google";
+import { getGoogleTokens } from "./lib/tokenStore";
+import { google } from "googleapis";
+
+app.post("/mcp/prep.generate.v1", devToolAuth, async (req, res) => {
+  const { userId, eventId } = req.body || {};
+  if (!userId || !eventId) return res.status(400).json({ error: "Missing userId/eventId" });
+
+  const tokens = await getGoogleTokens(userId);
+  if (!tokens) return res.status(401).json({ error: { code: "GOOGLE_NOT_CONNECTED" }});
+
+  const { calendar, gmail } = await makeClientsFor(userId, {
+    access_token: tokens.accessToken, refresh_token: tokens.refreshToken, expiry_date: tokens.expiryDate,
+  });
+
+  // 1) Pull the event
+  const ev = await calendar.events.get({ calendarId: "primary", eventId });
+  const attendees = (ev.data.attendees || []).map(a => a.email!).filter(Boolean);
+  const subject = (ev.data.summary || "").slice(0, 80);
+
+  // 2) Find 3 recent threads by attendee email + subject keywords
+  const q = `${attendees.map(a=>`from:${a}`).join(" OR ")} ${subject ? `subject:("${subject}")` : ""}`;
+  const list = await gmail.users.threads.list({ userId: "me", q, maxResults: 3 });
+  const threads = await Promise.all((list.data.threads||[]).map(async t => {
+    const full = await gmail.users.threads.get({ userId:"me", id: t.id! });
+    const last = full.data.messages?.at(-1);
+    return { id: t.id, snippet: last?.snippet || "" };
+  }));
+
+  // 3) Compose naive sections (placeholder—Agent will do the smart version)
+  const sections = {
+    snapshot: `Meeting: ${ev.data.summary || "Untitled"}\nParticipants: ${attendees.join(", ")}`,
+    lastContact: threads.map(t => `• ${t.snippet}`),
+    priorities: ["Improve efficiency", "De-risk project", "Hit KPIs"],
+    risks: [{risk:"No budget", counter:"Prove ROI with pilot"}, {risk:"Competing vendor", counter:"Differentiate on speed"}, {risk:"Timing", counter:"Offer fast start"}],
+    questions: ["What triggered this meeting?", "Who’s the economic buyer?", "What does success look like?", "Timeline?", "Risks?"],
+    agenda: ["Context (5m)", "Discovery (15m)", "Solution preview (10m)", "Next steps (5m)"],
+    notes: "",
+  };
+
+  // 4) Save
+  const saved = savePrep({ userId, eventId, sections });
+  res.json({ prepId: saved.id, url: `/prep/${saved.id}` });
+});
+
+
+Smoke test update
+
+Add to scripts/smoke.sh after the other calls:
+
+echo "→ Save prep (dev orchestration)"
+curl -fsS -X POST "$HOST/mcp/prep.save.v1" \
+  -H "Authorization: Bearer ${MCP_SERVICE_TOKEN}" \
+  -H "Content-Type: application/json" \
+  --data "{\"userId\":\"${USER_ID:-test-user}\",\"eventId\":\"demo-event\",\"sections\":{\"snapshot\":\"demo\",\"lastContact\":[],\"priorities\":[],\"risks\":[],\"questions\":[],\"agenda\":[]}}" | ${JQ}

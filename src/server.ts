@@ -12,6 +12,8 @@ import { getLastFetch } from './tokenProvider.js';
 import { execSync } from 'child_process';
 import { getOAuthClient, makeClientsFor } from './lib/google.js';
 import { saveGoogleTokens, getGoogleTokens, clearGoogleTokens, listConnectedUsers, generateOAuthState, validateOAuthState } from './lib/tokenStore.js';
+import { savePrep, getPrep, listPreps } from './lib/prepStore.js';
+import { devToolAuth } from './middleware/devToolAuth.js';
 
 const app: Express = express();
 
@@ -65,6 +67,13 @@ app.get('/contracts', (req: Request, res: Response) => {
     name,
     path: `/mcp/${name}`
   }));
+  
+  // Add direct route tools
+  toolsWithPaths.push(
+    { name: 'prep.save.v1', path: '/mcp/prep.save.v1' },
+    { name: 'prep.generate.v1', path: '/mcp/prep.generate.v1' }
+  );
+  
   res.json({ tools: toolsWithPaths });
 });
 
@@ -233,6 +242,94 @@ app.get('/connect', (req: Request, res: Response) => {
     </body>
     </html>
   `);
+});
+
+// Prep endpoints
+app.get('/prep/:id', (req: Request, res: Response) => {
+  const p = getPrep(req.params.id);
+  if (!p) return res.status(404).json({ error: 'Not found' });
+  res.json(p);
+});
+
+app.get('/prep', (req: Request, res: Response) => {
+  const userId = String(req.query.userId || '');
+  if (!userId) return res.status(400).json({ error: 'Missing userId' });
+  res.json({ preps: listPreps(userId) });
+});
+
+// MCP tool: prep.save.v1
+app.post('/mcp/prep.save.v1', devToolAuth, async (req: Request, res: Response) => {
+  const { userId, eventId, sections } = req.body || {};
+  if (!userId || !eventId || !sections) {
+    return res.status(400).json({ error: 'Missing input' });
+  }
+  const saved = savePrep({ userId, eventId, sections });
+  res.json({ prepId: saved.id, url: `/prep/${saved.id}` });
+});
+
+// MCP tool: prep.generate.v1 (orchestration)
+app.post('/mcp/prep.generate.v1', devToolAuth, async (req: Request, res: Response) => {
+  const { userId, eventId } = req.body || {};
+  if (!userId || !eventId) {
+    return res.status(400).json({ error: 'Missing userId/eventId' });
+  }
+
+  const tokens = await getGoogleTokens(userId);
+  if (!tokens) {
+    return res.status(401).json({ 
+      error: { code: 'GOOGLE_NOT_CONNECTED' }
+    });
+  }
+
+  const { calendar, gmail } = await makeClientsFor(userId, {
+    access_token: tokens.accessToken, 
+    refresh_token: tokens.refreshToken, 
+    expiry_date: tokens.expiryDate,
+  });
+
+  // 1) Pull the event
+  const ev = await calendar.events.get({ calendarId: 'primary', eventId });
+  const attendees = (ev.data.attendees || []).map(a => a.email!).filter(Boolean);
+  const subject = (ev.data.summary || '').slice(0, 80);
+
+  // 2) Find 3 recent threads by attendee email + subject keywords
+  const q = `${attendees.map(a => `from:${a}`).join(' OR ')} ${subject ? `subject:("${subject}")` : ''}`;
+  const list = await gmail.users.threads.list({ userId: 'me', q, maxResults: 3 });
+  const threads = await Promise.all((list.data.threads || []).map(async t => {
+    const full = await gmail.users.threads.get({ userId: 'me', id: t.id! });
+    const last = full.data.messages?.at(-1);
+    return { id: t.id, snippet: last?.snippet || '' };
+  }));
+
+  // 3) Compose naive sections (placeholder—Agent will do the smart version)
+  const sections = {
+    snapshot: `Meeting: ${ev.data.summary || 'Untitled'}\nParticipants: ${attendees.join(', ')}`,
+    lastContact: threads.map(t => `• ${t.snippet}`),
+    priorities: ['Improve efficiency', 'De-risk project', 'Hit KPIs'],
+    risks: [
+      { risk: 'No budget', counter: 'Prove ROI with pilot' }, 
+      { risk: 'Competing vendor', counter: 'Differentiate on speed' }, 
+      { risk: 'Timing', counter: 'Offer fast start' }
+    ],
+    questions: [
+      'What triggered this meeting?', 
+      'Who's the economic buyer?', 
+      'What does success look like?', 
+      'Timeline?', 
+      'Risks?'
+    ],
+    agenda: [
+      'Context (5m)', 
+      'Discovery (15m)', 
+      'Solution preview (10m)', 
+      'Next steps (5m)'
+    ],
+    notes: '',
+  };
+
+  // 4) Save
+  const saved = savePrep({ userId, eventId, sections });
+  res.json({ prepId: saved.id, url: `/prep/${saved.id}` });
 });
 
 app.post('/mcp/:tool', bearerAuth, async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
