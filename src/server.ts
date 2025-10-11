@@ -11,7 +11,7 @@ import { MCPToolContext } from './contracts/index.js';
 import { getLastFetch } from './tokenProvider.js';
 import { execSync } from 'child_process';
 import { getOAuthClient, makeClientsFor } from './lib/google.js';
-import { saveGoogleTokens, getGoogleTokens, clearGoogleTokens, listConnectedUsers } from './lib/tokenStore.js';
+import { saveGoogleTokens, getGoogleTokens, clearGoogleTokens, listConnectedUsers, generateOAuthState, validateOAuthState } from './lib/tokenStore.js';
 
 const app: Express = express();
 
@@ -119,6 +119,7 @@ function requireUserId(req: Request, res: Response, next: NextFunction) {
 app.get('/auth/google', requireUserId, async (req: Request, res: Response) => {
   try {
     const userId = (req as any).userId;
+    const state = generateOAuthState(userId);
     const oauth2 = getOAuthClient();
     const url = oauth2.generateAuthUrl({
       access_type: 'offline',
@@ -127,7 +128,7 @@ app.get('/auth/google', requireUserId, async (req: Request, res: Response) => {
         'https://www.googleapis.com/auth/calendar.readonly',
         'https://www.googleapis.com/auth/gmail.readonly',
       ],
-      state: encodeURIComponent(JSON.stringify({ userId })),
+      state,
     });
     res.redirect(url);
   } catch (error) {
@@ -138,13 +139,22 @@ app.get('/auth/google', requireUserId, async (req: Request, res: Response) => {
 app.get('/auth/google/callback', async (req: Request, res: Response) => {
   try {
     const { code, state } = req.query as { code?: string; state?: string };
+    
     if (!code) {
       return res.status(400).send('Missing authorization code');
     }
-    const { userId } = JSON.parse(decodeURIComponent(state || '{}'));
-    if (!userId) {
-      return res.status(400).send('Missing userId in state');
+    
+    if (!state) {
+      return res.status(400).send('Missing state parameter');
     }
+    
+    // Validate state to prevent CSRF attacks
+    const validation = validateOAuthState(state);
+    if (!validation.valid) {
+      return res.status(403).send('Invalid or expired OAuth state. Please try connecting again.');
+    }
+    
+    const userId = validation.userId;
     
     const oauth2 = getOAuthClient();
     const { tokens } = await oauth2.getToken(code);
