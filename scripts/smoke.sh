@@ -66,4 +66,16 @@ else
 fi
 echo ""
 
+echo "→ Save prep (prep.save.v1)"
+if [[ -z "${AUTH_KEY}" ]]; then
+  echo "⚠️  DEV_LOCAL_TOOL_KEY or MCP_SERVICE_TOKEN not set - skipping prep.save test"
+else
+  curl -fsS -X POST "$HOST/mcp/prep.save.v1" \
+    -H "Authorization: Bearer ${AUTH_KEY}" \
+    -H "Content-Type: application/json" \
+    --data "{\"userId\":\"${USER_ID:-test-user}\",\"eventId\":\"demo-event\",\"sections\":{\"snapshot\":\"demo\",\"lastContact\":[],\"priorities\":[],\"risks\":[],\"questions\":[],\"agenda\":[]}}" | $JSON_FORMATTER || { echo "❌ prep.save test failed"; exit 1; }
+  echo "✅ prep.save.v1 test passed"
+fi
+echo ""
+
 echo "✅ All smoke tests passed!"
