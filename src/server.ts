@@ -221,7 +221,8 @@ async function startServer() {
       (globalThis as any).__MCP_SERVER_STARTED__ = true;
       
       httpServer.listen(CONFIG.PORT, "0.0.0.0", () => {
-        const host = process.env.REPLIT_URL || process.env.RAILWAY_PUBLIC_DOMAIN || `http://0.0.0.0:${CONFIG.PORT}`;
+        const replitDomain = process.env.REPLIT_DOMAINS;
+        const host = replitDomain ? `https://${replitDomain}` : (process.env.REPLIT_URL || process.env.RAILWAY_PUBLIC_DOMAIN || `http://0.0.0.0:${CONFIG.PORT}`);
         console.log(`[MCP-Server] Listening on ${host} (source: PORT)`);
         console.log(`[MCP-Server] Public URL: ${host}`);
         console.log(`[MCP-Server] Health: GET /healthz   Contracts: GET /contracts`);
