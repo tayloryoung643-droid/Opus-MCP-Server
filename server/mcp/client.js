@@ -8,38 +8,48 @@ if (!connectionString) {
 
 const sql = neon(connectionString);
 
-// Service stubs that integrate with user's external services
-const createGoogleCalendarService = (userId) => ({
-  async getEvents(userId) {
-    // This is a stub - real implementation would use Google Calendar API
-    console.log('[MCP-Client] Google Calendar service called for user:', userId);
-    return [];
-  }
-});
+let googleCalendarServiceModule;
+let salesforceServiceModule;
+let gmailServiceModule;
 
-const createSalesforceService = (userId) => ({
-  async getOpportunities(userId, limit = 10) {
-    // This is a stub - real implementation would use Salesforce API
-    console.log('[MCP-Client] Salesforce service called for user:', userId);
-    return [];
+async function loadGoogleCalendarService() {
+  if (!googleCalendarServiceModule) {
+    googleCalendarServiceModule = await import('../services/googleCalendar.js');
   }
-});
+  return googleCalendarServiceModule.googleCalendarService;
+}
 
-const createGmailService = (userId) => ({
-  async searchThreads(userId, query, limit = 5) {
-    // This is a stub - real implementation would use Gmail API
-    console.log('[MCP-Client] Gmail service called for user:', userId);
-    return [];
+async function loadSalesforceService() {
+  if (!salesforceServiceModule) {
+    salesforceServiceModule = await import('../services/salesforceCrm.js');
   }
-});
+  return salesforceServiceModule.salesforceCrmService;
+}
+
+async function loadGmailService() {
+  if (!gmailServiceModule) {
+    try {
+      gmailServiceModule = await import('../services/gmail.js');
+    } catch {
+      gmailServiceModule = { gmailService: undefined };
+    }
+  }
+  return gmailServiceModule.gmailService;
+}
 
 export async function createMcpContext(userId) {
   console.log('[MCP-Client] Creating MCP context for user:', userId);
-  
+
+  const [gcal, sf, gmail] = await Promise.all([
+    loadGoogleCalendarService(),
+    loadSalesforceService(),
+    loadGmailService()
+  ]);
+
   return {
-    gcal: createGoogleCalendarService(userId),
-    sf: createSalesforceService(userId),
-    gmail: createGmailService(userId)
+    gcal,
+    sf,
+    gmail
   };
 }
 

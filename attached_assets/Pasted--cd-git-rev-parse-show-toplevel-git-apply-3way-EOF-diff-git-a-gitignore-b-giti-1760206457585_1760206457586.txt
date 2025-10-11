@@ -1,0 +1,1410 @@
+ (cd "$(git rev-parse --show-toplevel)" && git apply --3way <<'EOF' 
+diff --git a/.gitignore b/.gitignore
+new file mode 100644
+index 0000000000000000000000000000000000000000..3bdd52eb2e05a5bd79dbb843a3f85f68274d73d9
+--- /dev/null
++++ b/.gitignore
+@@ -0,0 +1,3 @@
++node_modules/
++dist/
++.DS_Store
+diff --git a/server/db.d.ts b/server/db.d.ts
+new file mode 100644
+index 0000000000000000000000000000000000000000..88592286c4403028e5e03f5092a2497c7bbc8a5d
+--- /dev/null
++++ b/server/db.d.ts
+@@ -0,0 +1 @@
++export const db: any;
+diff --git a/server/mcp/client.d.ts b/server/mcp/client.d.ts
+new file mode 100644
+index 0000000000000000000000000000000000000000..f7dbd685c238c63019eb91441e39bf709e7572f2
+--- /dev/null
++++ b/server/mcp/client.d.ts
+@@ -0,0 +1,14 @@
++export interface McpServices {
++  gcal?: any;
++  sf?: any;
++  gmail?: any;
++}
++
++export interface IntegrationStatus {
++  hasGoogle: boolean;
++  hasSalesforce: boolean;
++  hasGmail: boolean;
++}
++
++export function createMcpContext(userId: string): Promise<McpServices>;
++export function validateUserIntegrations(userId: string): Promise<IntegrationStatus>;
+diff --git a/server/mcp/client.js b/server/mcp/client.js
+index bb8481865557313985e36bf36742315e546042dc..25f23722857c32dd64cad13543e506cf49137b9e 100644
+--- a/server/mcp/client.js
++++ b/server/mcp/client.js
+@@ -1,67 +1,77 @@
+ import { neon } from '@neondatabase/serverless';
+ 
+ const connectionString = process.env.DATABASE_URL;
+ 
+ if (!connectionString) {
+   throw new Error('DATABASE_URL environment variable is required');
+ }
+ 
+ const sql = neon(connectionString);
+ 
+-// Service stubs that integrate with user's external services
+-const createGoogleCalendarService = (userId) => ({
+-  async getEvents(userId) {
+-    // This is a stub - real implementation would use Google Calendar API
+-    console.log('[MCP-Client] Google Calendar service called for user:', userId);
+-    return [];
++let googleCalendarServiceModule;
++let salesforceServiceModule;
++let gmailServiceModule;
++
++async function loadGoogleCalendarService() {
++  if (!googleCalendarServiceModule) {
++    googleCalendarServiceModule = await import('../services/googleCalendar.js');
+   }
+-});
++  return googleCalendarServiceModule.googleCalendarService;
++}
+ 
+-const createSalesforceService = (userId) => ({
+-  async getOpportunities(userId, limit = 10) {
+-    // This is a stub - real implementation would use Salesforce API
+-    console.log('[MCP-Client] Salesforce service called for user:', userId);
+-    return [];
++async function loadSalesforceService() {
++  if (!salesforceServiceModule) {
++    salesforceServiceModule = await import('../services/salesforceCrm.js');
+   }
+-});
++  return salesforceServiceModule.salesforceCrmService;
++}
+ 
+-const createGmailService = (userId) => ({
+-  async searchThreads(userId, query, limit = 5) {
+-    // This is a stub - real implementation would use Gmail API
+-    console.log('[MCP-Client] Gmail service called for user:', userId);
+-    return [];
++async function loadGmailService() {
++  if (!gmailServiceModule) {
++    try {
++      gmailServiceModule = await import('../services/gmail.js');
++    } catch {
++      gmailServiceModule = { gmailService: undefined };
++    }
+   }
+-});
++  return gmailServiceModule.gmailService;
++}
+ 
+ export async function createMcpContext(userId) {
+   console.log('[MCP-Client] Creating MCP context for user:', userId);
+-  
++
++  const [gcal, sf, gmail] = await Promise.all([
++    loadGoogleCalendarService(),
++    loadSalesforceService(),
++    loadGmailService()
++  ]);
++
+   return {
+-    gcal: createGoogleCalendarService(userId),
+-    sf: createSalesforceService(userId),
+-    gmail: createGmailService(userId)
++    gcal,
++    sf,
++    gmail
+   };
+ }
+ 
+ export async function validateUserIntegrations(userId) {
+   try {
+     // Check if user has connected integrations in the database
+     const integrations = await sql`
+       SELECT integration_type, is_active FROM user_integrations
+       WHERE user_id = ${userId}
+     `;
+ 
+     const activeIntegrations = new Set(
+       integrations.filter(i => i.is_active).map(i => i.integration_type)
+     );
+ 
+     return {
+       hasGoogle: activeIntegrations.has('google') || activeIntegrations.has('google_calendar'),
+       hasSalesforce: activeIntegrations.has('salesforce'),
+       hasGmail: activeIntegrations.has('gmail') || activeIntegrations.has('google')
+     };
+   } catch (error) {
+     console.error('[MCP-Client] validateUserIntegrations error:', error);
+     // Return false for all if there's an error (table might not exist)
+     return {
+       hasGoogle: false,
+diff --git a/server/services/gmail.d.ts b/server/services/gmail.d.ts
+new file mode 100644
+index 0000000000000000000000000000000000000000..8a9862874a3efeb4e500291f835f6eae07fcc655
+--- /dev/null
++++ b/server/services/gmail.d.ts
+@@ -0,0 +1,12 @@
++export function listRecentThreads(...args: any[]): Promise<any[]>;
++export function readThread(...args: any[]): Promise<any | null>;
++export function extractMessageParts(...args: any[]): any;
++
++export interface GmailService {
++  listRecentThreads: typeof listRecentThreads;
++  readThread: typeof readThread;
++  extractMessageParts: typeof extractMessageParts;
++}
++
++export const gmailService: GmailService;
++export default gmailService;
+diff --git a/server/services/gmail.js b/server/services/gmail.js
+new file mode 100644
+index 0000000000000000000000000000000000000000..182a54597c5d503700cd303e83e43a498f259f09
+--- /dev/null
++++ b/server/services/gmail.js
+@@ -0,0 +1,22 @@
++export async function listRecentThreads() {
++  console.warn('[GmailService] listRecentThreads called but Gmail integration not yet implemented');
++  return [];
++}
++
++export async function readThread() {
++  console.warn('[GmailService] readThread called but Gmail integration not yet implemented');
++  return null;
++}
++
++export function extractMessageParts() {
++  console.warn('[GmailService] extractMessageParts called but Gmail integration not yet implemented');
++  return { messages: [] };
++}
++
++export const gmailService = {
++  listRecentThreads,
++  readThread,
++  extractMessageParts
++};
++
++export default gmailService;
+diff --git a/server/services/googleCalendar.d.ts b/server/services/googleCalendar.d.ts
+new file mode 100644
+index 0000000000000000000000000000000000000000..53fe28a9650456b7751b19cfb3dcd3e3464dedea
+--- /dev/null
++++ b/server/services/googleCalendar.d.ts
+@@ -0,0 +1,8 @@
++export interface GoogleCalendarService {
++  getUpcomingEvents(userId: string, limit?: number, requestId?: string): Promise<any[]>;
++  getEventsInRange(userId: string, startIso: string, endIso: string, requestId?: string): Promise<any[]>;
++  getEventById(userId: string, eventId: string, requestId?: string): Promise<any | null>;
++}
++
++export const googleCalendarService: GoogleCalendarService;
++export default googleCalendarService;
+diff --git a/server/services/googleCalendar.js b/server/services/googleCalendar.js
+new file mode 100644
+index 0000000000000000000000000000000000000000..c12b8db228ae55b8fa938107529bc119b1b59a45
+--- /dev/null
++++ b/server/services/googleCalendar.js
+@@ -0,0 +1,140 @@
++import { getTokensFor, clearTokenCache } from '../../src/tokenProvider.js';
++
++const GOOGLE_CALENDAR_API_BASE = 'https://www.googleapis.com/calendar/v3';
++const DEFAULT_CALENDAR_ID = 'primary';
++
++function log(rid, message, extra = {}) {
++  const payload = { rid, source: 'GoogleCalendarService', ...extra };
++  console.log(`[GoogleCalendar] ${message}`, payload);
++}
++
++function buildUrl(path, query) {
++  const url = new URL(`${GOOGLE_CALENDAR_API_BASE}${path}`);
++  if (query) {
++    for (const [key, value] of Object.entries(query)) {
++      if (value !== undefined && value !== null && value !== '') {
++        url.searchParams.set(key, String(value));
++      }
++    }
++  }
++  return url;
++}
++
++async function fetchWithToken(userId, requestId, path, { query, method = 'GET' } = {}, attempt = 1) {
++  const rid = requestId ?? `gcal-${attempt}`;
++  const tokens = await getTokensFor(userId, rid);
++
++  if (!tokens?.google?.accessToken) {
++    log(rid, 'No Google tokens available', { userId });
++    return null;
++  }
++
++  const url = buildUrl(path, query);
++  const headers = {
++    'Authorization': `Bearer ${tokens.google.accessToken}`,
++    'Accept': 'application/json'
++  };
++
++  if (requestId) {
++    headers['x-request-id'] = requestId;
++  }
++
++  const response = await fetch(url, { method, headers });
++
++  if (response.status === 401 || response.status === 403) {
++    log(rid, 'Received unauthorized response, clearing cache and retrying', {
++      userId,
++      status: response.status,
++      attempt
++    });
++
++    if (attempt === 1) {
++      clearTokenCache(userId);
++      return fetchWithToken(userId, requestId, path, { query, method }, attempt + 1);
++    }
++  }
++
++  if (!response.ok) {
++    const errorBody = await safeReadJson(response);
++    log(rid, 'Google API error response', {
++      userId,
++      status: response.status,
++      error: errorBody
++    });
++    throw new Error(`Google Calendar API request failed with status ${response.status}`);
++  }
++
++  return await response.json();
++}
++
++async function safeReadJson(response) {
++  try {
++    return await response.json();
++  } catch {
++    return await response.text();
++  }
++}
++
++async function listEvents(userId, requestId, query) {
++  const data = await fetchWithToken(
++    userId,
++    requestId,
++    `/calendars/${encodeURIComponent(DEFAULT_CALENDAR_ID)}/events`,
++    { query }
++  );
++
++  if (!data) {
++    return [];
++  }
++
++  return Array.isArray(data.items) ? data.items : [];
++}
++
++export const googleCalendarService = {
++  async getUpcomingEvents(userId, limit = 10, requestId) {
++    const now = new Date().toISOString();
++    const query = {
++      timeMin: now,
++      maxResults: Math.min(Math.max(limit, 1), 250),
++      singleEvents: 'true',
++      orderBy: 'startTime'
++    };
++
++    log(requestId ?? 'gcal-list', 'Fetching upcoming events', { userId, limit: query.maxResults });
++    return await listEvents(userId, requestId, query);
++  },
++
++  async getEventsInRange(userId, startIso, endIso, requestId) {
++    const query = {
++      timeMin: startIso,
++      timeMax: endIso,
++      singleEvents: 'true',
++      orderBy: 'startTime',
++      maxResults: 250
++    };
++
++    log(requestId ?? 'gcal-range', 'Fetching events in range', {
++      userId,
++      startIso,
++      endIso
++    });
++    return await listEvents(userId, requestId, query);
++  },
++
++  async getEventById(userId, eventId, requestId) {
++    const data = await fetchWithToken(
++      userId,
++      requestId,
++      `/calendars/${encodeURIComponent(DEFAULT_CALENDAR_ID)}/events/${encodeURIComponent(eventId)}`
++    );
++
++    if (!data) {
++      return null;
++    }
++
++    log(requestId ?? 'gcal-event', 'Fetched event by ID', { userId, eventId });
++    return data;
++  }
++};
++
++export default googleCalendarService;
+diff --git a/server/services/salesforceCrm.d.ts b/server/services/salesforceCrm.d.ts
+new file mode 100644
+index 0000000000000000000000000000000000000000..0a7cc29aba9f70ec7ed5c9b8793f4bcf4864e651
+--- /dev/null
++++ b/server/services/salesforceCrm.d.ts
+@@ -0,0 +1,23 @@
++export interface SalesforceAccountOptions {
++  queryText?: string;
++  limit?: number;
++  fields?: string[];
++}
++
++export interface SalesforceOpportunityOptions {
++  limit?: number;
++  accountId?: string;
++  contactId?: string;
++  fields?: string[];
++}
++
++export interface SalesforceCrmService {
++  getAccountById(userId: string, accountId: string, requestId?: string, fields?: string[]): Promise<any | null>;
++  searchRecords(userId: string, queryText?: string, objectTypes?: string[], requestId?: string): Promise<any[]>;
++  searchAccounts(userId: string, options?: SalesforceAccountOptions, requestId?: string): Promise<any[]>;
++  getOpportunityById(userId: string, opportunityId: string, requestId?: string, fields?: string[]): Promise<any | null>;
++  getOpportunities(userId: string, options?: SalesforceOpportunityOptions, requestId?: string): Promise<any[]>;
++}
++
++export const salesforceCrmService: SalesforceCrmService;
++export default salesforceCrmService;
+diff --git a/server/services/salesforceCrm.js b/server/services/salesforceCrm.js
+new file mode 100644
+index 0000000000000000000000000000000000000000..1f9077ac3426552cf05fb7779481156bfd95abb8
+--- /dev/null
++++ b/server/services/salesforceCrm.js
+@@ -0,0 +1,286 @@
++import { getTokensFor, clearTokenCache } from '../../src/tokenProvider.js';
++
++const SALESFORCE_API_VERSION = 'v57.0';
++
++function log(rid, message, extra = {}) {
++  const payload = { rid, source: 'SalesforceService', ...extra };
++  console.log(`[Salesforce] ${message}`, payload);
++}
++
++function buildUrl(instanceUrl, path, query) {
++  const url = new URL(path, instanceUrl);
++  if (query) {
++    for (const [key, value] of Object.entries(query)) {
++      if (value !== undefined && value !== null && value !== '') {
++        url.searchParams.set(key, String(value));
++      }
++    }
++  }
++  return url;
++}
++
++function escapeSoql(value) {
++  return String(value).replace(/'/g, "\\'");
++}
++
++function escapeSosl(value) {
++  return String(value).replace(/[\\{}]/g, '\\$&').replace(/"/g, '\\"').replace(/'/g, "\\'");
++}
++
++async function fetchSalesforce(userId, requestId, path, { query, method = 'GET' } = {}, attempt = 1) {
++  const rid = requestId ?? `sfdc-${attempt}`;
++  const tokens = await getTokensFor(userId, rid);
++
++  if (!tokens?.salesforce?.accessToken || !tokens.salesforce.instanceUrl) {
++    log(rid, 'No Salesforce tokens available', { userId });
++    return null;
++  }
++
++  const url = buildUrl(tokens.salesforce.instanceUrl, path, query);
++  const headers = {
++    'Authorization': `Bearer ${tokens.salesforce.accessToken}`,
++    'Accept': 'application/json'
++  };
++
++  if (requestId) {
++    headers['x-request-id'] = requestId;
++  }
++
++  const response = await fetch(url, { method, headers });
++
++  if (response.status === 401 || response.status === 403) {
++    log(rid, 'Received unauthorized response, clearing cache and retrying', {
++      userId,
++      status: response.status,
++      attempt
++    });
++
++    if (attempt === 1) {
++      clearTokenCache(userId);
++      return fetchSalesforce(userId, requestId, path, { query, method }, attempt + 1);
++    }
++  }
++
++  if (!response.ok) {
++    const errorBody = await safeReadJson(response);
++    log(rid, 'Salesforce API error response', {
++      userId,
++      status: response.status,
++      error: errorBody
++    });
++    throw new Error(`Salesforce API request failed with status ${response.status}`);
++  }
++
++  return await response.json();
++}
++
++async function safeReadJson(response) {
++  try {
++    return await response.json();
++  } catch {
++    return await response.text();
++  }
++}
++
++const DEFAULT_ACCOUNT_FIELDS = [
++  'Id',
++  'Name',
++  'Industry',
++  'NumberOfEmployees',
++  'AnnualRevenue',
++  'Website',
++  'Description'
++];
++
++const DEFAULT_OPPORTUNITY_FIELDS = [
++  'Id',
++  'Name',
++  'StageName',
++  'Amount',
++  'CloseDate',
++  'AccountId',
++  'Account.Name'
++];
++
++export const salesforceCrmService = {
++  async getAccountById(userId, accountId, requestId, fields = DEFAULT_ACCOUNT_FIELDS) {
++    const data = await fetchSalesforce(
++      userId,
++      requestId,
++      `/services/data/${SALESFORCE_API_VERSION}/sobjects/Account/${encodeURIComponent(accountId)}`
++    );
++
++    if (!data) {
++      return null;
++    }
++
++    const filtered = filterFields(data, fields);
++    log(requestId ?? 'sfdc-account', 'Fetched account by ID', { userId, accountId });
++    return filtered;
++  },
++
++  async searchRecords(userId, queryText, objectTypes = ['Account'], requestId) {
++    const rid = requestId ?? 'sfdc-search';
++    const trimmed = queryText?.trim();
++
++    if (!trimmed) {
++      const defaultQuery = `SELECT Id, Name, Industry, NumberOfEmployees, AnnualRevenue, Website, Description FROM Account ORDER BY LastModifiedDate DESC NULLS LAST LIMIT 10`;
++      const data = await fetchSalesforce(
++        userId,
++        requestId,
++        `/services/data/${SALESFORCE_API_VERSION}/query/`,
++        { query: { q: defaultQuery } }
++      );
++      return data?.records ?? [];
++    }
++
++    const returningClause = objectTypes
++      .map(type => `${type}(Id, Name, Industry, NumberOfEmployees, AnnualRevenue, Website, Description LIMIT 10)`)
++      .join(', ');
++
++    const searchQuery = `FIND {${escapeSosl(trimmed)}} IN ALL FIELDS RETURNING ${returningClause}`;
++    log(rid, 'Executing SOSL search', { userId, objectTypes, query: trimmed });
++
++    const data = await fetchSalesforce(
++      userId,
++      requestId,
++      `/services/data/${SALESFORCE_API_VERSION}/search/`,
++      { query: { q: searchQuery } }
++    );
++
++    if (!data) {
++      return [];
++    }
++
++    if (Array.isArray(data.searchRecords)) {
++      return data.searchRecords;
++    }
++
++    return Array.isArray(data) ? data : [];
++  },
++
++  async searchAccounts(userId, options = {}, requestId) {
++    const { queryText, limit = 10, fields = DEFAULT_ACCOUNT_FIELDS } = options;
++    const safeLimit = Math.min(Math.max(Number(limit) || 10, 1), 200);
++
++    if (!queryText || !queryText.trim()) {
++      const query = `SELECT ${fields.join(', ')} FROM Account ORDER BY LastModifiedDate DESC NULLS LAST LIMIT ${safeLimit}`;
++      const data = await fetchSalesforce(
++        userId,
++        requestId,
++        `/services/data/${SALESFORCE_API_VERSION}/query/`,
++        { query: { q: query } }
++      );
++      const records = Array.isArray(data?.records) ? data.records : [];
++      return records.map(record => filterFields(record, fields));
++    }
++
++    const returningClause = `Account(${fields.join(', ')} LIMIT ${safeLimit})`;
++    const searchQuery = `FIND {${escapeSosl(queryText.trim())}} IN ALL FIELDS RETURNING ${returningClause}`;
++
++    const data = await fetchSalesforce(
++      userId,
++      requestId,
++      `/services/data/${SALESFORCE_API_VERSION}/search/`,
++      { query: { q: searchQuery } }
++    );
++
++    if (Array.isArray(data?.searchRecords)) {
++      return data.searchRecords
++        .filter(record => record?.attributes?.type === 'Account')
++        .map(record => filterFields(record, fields));
++    }
++
++    if (Array.isArray(data)) {
++      return data
++        .filter(record => record?.attributes?.type === 'Account')
++        .map(record => filterFields(record, fields));
++    }
++
++    return [];
++  },
++
++  async getOpportunityById(userId, opportunityId, requestId, fields = DEFAULT_OPPORTUNITY_FIELDS) {
++    const data = await fetchSalesforce(
++      userId,
++      requestId,
++      `/services/data/${SALESFORCE_API_VERSION}/sobjects/Opportunity/${encodeURIComponent(opportunityId)}`
++    );
++
++    if (!data) {
++      return null;
++    }
++
++    const filtered = filterFields(data, fields);
++    log(requestId ?? 'sfdc-opportunity', 'Fetched opportunity by ID', { userId, opportunityId });
++    return filtered;
++  },
++
++  async getOpportunities(userId, options = {}, requestId) {
++    const { limit = 10, accountId, contactId, fields = DEFAULT_OPPORTUNITY_FIELDS } = options;
++    const conditions = [];
++
++    if (accountId) {
++      conditions.push(`AccountId = '${escapeSoql(accountId)}'`);
++    }
++
++    if (contactId) {
++      conditions.push(`Id IN (SELECT OpportunityId FROM OpportunityContactRole WHERE ContactId = '${escapeSoql(contactId)}')`);
++    }
++
++    const whereClause = conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';
++    const safeLimit = Math.min(Math.max(Number(limit) || 10, 1), 200);
++    const query = `SELECT ${fields.join(', ')} FROM Opportunity ${whereClause} ORDER BY CloseDate DESC NULLS LAST LIMIT ${safeLimit}`;
++
++    log(requestId ?? 'sfdc-opps', 'Querying opportunities', {
++      userId,
++      accountId,
++      contactId,
++      limit: safeLimit
++    });
++
++    const data = await fetchSalesforce(
++      userId,
++      requestId,
++      `/services/data/${SALESFORCE_API_VERSION}/query/`,
++      { query: { q: query } }
++    );
++
++    if (!data) {
++      return [];
++    }
++
++    if (!Array.isArray(data.records)) {
++      return [];
++    }
++
++    return data.records.map(record => filterFields(record, fields));
++  }
++};
++
++function filterFields(record, fields) {
++  if (!fields || fields.length === 0) {
++    return record;
++  }
++
++  const result = {};
++  for (const field of fields) {
++    if (field.includes('.')) {
++      const [parent, child] = field.split('.');
++      if (record[parent] && typeof record[parent] === 'object') {
++        result[parent] = {
++          ...(result[parent] || {}),
++          [child]: record[parent][child]
++        };
++      }
++    } else if (field in record) {
++      result[field] = record[field];
++    }
++  }
++  if (record.Id && !result.Id) {
++    result.Id = record.Id;
++  }
++  return result;
++}
++
++export default salesforceCrmService;
+diff --git a/server/storage.d.ts b/server/storage.d.ts
+new file mode 100644
+index 0000000000000000000000000000000000000000..064c68f077b2fa00548c19a60e7c0bfa24221439
+--- /dev/null
++++ b/server/storage.d.ts
+@@ -0,0 +1 @@
++export const storage: any;
+diff --git a/src/orchestrator/contextLoader.ts b/src/orchestrator/contextLoader.ts
+index e6d892977765f6806fe7f1742586d2a72a5fb627..2685b8912fcf75171c0703376e6c53403acdc470 100644
+--- a/src/orchestrator/contextLoader.ts
++++ b/src/orchestrator/contextLoader.ts
+@@ -1,49 +1,49 @@
+ export interface SalesContext {
+   events: any[];
+   opportunities: any[];
+   recentThreads: any[];
+   integrationStatus: {
+     hasGoogle: boolean;
+     hasSalesforce: boolean;
+     hasGmail: boolean;
+   };
+ }
+ 
+ export async function buildSalesContext({ mcp, userId }: { mcp: any; userId: string }): Promise<SalesContext> {
+   const context: SalesContext = {
+     events: [],
+     opportunities: [],
+     recentThreads: [],
+     integrationStatus: {
+       hasGoogle: false,
+       hasSalesforce: false,
+       hasGmail: false
+     }
+   };
+ 
+-  const { validateUserIntegrations } = await import('../../../server/mcp/client.js');
++  const { validateUserIntegrations } = await import('../../server/mcp/client.js');
+   context.integrationStatus = await validateUserIntegrations(userId);
+ 
+   console.log(`[MCP-Context] Building sales context for user ${userId}:`, context.integrationStatus);
+ 
+   if (context.integrationStatus.hasGoogle) {
+     try {
+       const events = await mcp.gcal.getEvents(userId);
+       context.events = events?.slice(0, 5) || [];
+       console.log(`[MCP-Context] Loaded ${context.events.length} calendar events`);
+     } catch (error) {
+       console.error('[MCP-Context] Error loading calendar events:', error);
+     }
+   }
+ 
+   if (context.integrationStatus.hasSalesforce) {
+     try {
+       const opportunities = await mcp.sf.getOpportunities(userId, 10);
+       context.opportunities = opportunities || [];
+       console.log(`[MCP-Context] Loaded ${context.opportunities.length} opportunities`);
+     } catch (error) {
+       console.error('[MCP-Context] Error loading opportunities:', error);
+     }
+   }
+ 
+   if (context.integrationStatus.hasGmail) {
+diff --git a/src/orchestrator/contextResolver.ts b/src/orchestrator/contextResolver.ts
+index 6f291cbf6e02315d1cc566e0666be35ce3c04df6..4fc7ad080fcc853ac7d336c8d5b595bc4ca454df 100644
+--- a/src/orchestrator/contextResolver.ts
++++ b/src/orchestrator/contextResolver.ts
+@@ -1,70 +1,70 @@
+ import { MCPToolContext } from '../contracts/index.js';
+ 
+ export class UnifiedMCPContextResolver {
+   private mcpContext: MCPToolContext | null = null;
+   private mcpServices: any = null;
+   private userId: string;
+ 
+   constructor(userId: string) {
+     this.userId = userId;
+   }
+ 
+   async initialize(): Promise<void> {
+     try {
+-      const { createMcpContext } = await import('../../../server/mcp/client.js');
+-      const { storage } = await import('../../../server/storage.js');
++      const { createMcpContext } = await import('../../server/mcp/client.js');
++      const { storage } = await import('../../server/storage.js');
+       
+       this.mcpServices = await createMcpContext(this.userId);
+       
+       this.mcpContext = {
+         userId: this.userId,
+         storage: storage,
+         googleCalendarService: this.mcpServices.gcal,
+         salesforceCrmService: this.mcpServices.sf,
+         user: { id: this.userId }
+       };
+ 
+       console.log(`[MCP-Resolver] Initialized context for user ${this.userId}`);
+     } catch (error) {
+       console.error('[MCP-Resolver] Failed to initialize context:', error);
+       throw error;
+     }
+   }
+ 
+   async executeTool(toolName: string, args: any = {}): Promise<any> {
+     if (!this.mcpContext) {
+       await this.initialize();
+     }
+ 
+     try {
+       console.log(`[MCP-Resolver] Executing tool: ${toolName} for user ${this.userId}`);
+       
+       const toolModule = await import(`../tools/${toolName}.js`);
+       const result = await toolModule.handler(args, this.mcpContext!);
+       
+       console.log(`[MCP-Resolver] Tool ${toolName} completed successfully`);
+       return result;
+     } catch (error) {
+       console.error(`[MCP-Resolver] Tool ${toolName} execution failed:`, error);
+       return {
+         error: error instanceof Error ? error.message : 'Unknown error',
+         fallback: true
+       };
+     }
+   }
+ 
+   async checkIntegrations(): Promise<{
+     hasGoogle: boolean;
+     hasSalesforce: boolean;
+     hasGmail: boolean;
+   }> {
+-    const { validateUserIntegrations } = await import('../../../server/mcp/client.js');
++    const { validateUserIntegrations } = await import('../../server/mcp/client.js');
+     return await validateUserIntegrations(this.userId);
+   }
+ }
+ 
+ export async function createUnifiedMCPResolver(userId: string): Promise<UnifiedMCPContextResolver> {
+   const resolver = new UnifiedMCPContextResolver(userId);
+   await resolver.initialize();
+   return resolver;
+ }
+diff --git a/src/tokenProvider.ts b/src/tokenProvider.ts
+index 88344e1925100528f7a06d8150c5e2d9ec3572ce..14c867f7e00478e9640830dbe89e8f0ee843f5d9 100644
+--- a/src/tokenProvider.ts
++++ b/src/tokenProvider.ts
+@@ -143,41 +143,42 @@ export async function getTokensFor(
+     }
+ 
+     if (data.salesforce) {
+       tokens.salesforce = {
+         accessToken: data.salesforce.access_token,
+         refreshToken: data.salesforce.refresh_token,
+         instanceUrl: data.salesforce.instance_url,
+         isActive: true
+       };
+       console.log(`[TokenProvider:${rid}] Cached Salesforce tokens for userId=${userId}`);
+     }
+ 
+     // Store in cache
+     tokenCache.set(userId, tokens);
+     
+     // Update last fetch state
+     lastFetch = { rid, userId, status, receivedKeys, timestamp: now };
+     console.log(`[TokenProvider:${rid}]`, {
+       status,
+       receivedKeys
+     });
+ 
+     return tokens;
+   } catch (error) {
+     console.error(`[TokenProvider:${rid}] Error fetching tokens for userId=${userId}:`, error instanceof Error ? error.message : 'unknown error');
++    lastFetch = { rid, userId, status: null, receivedKeys: [], timestamp: now };
+     return null;
+   }
+ }
+ 
+ /**
+  * Clear the token cache for a specific user or all users
+  */
+ export function clearTokenCache(userId?: string): void {
+   if (userId) {
+     tokenCache.delete(userId);
+     console.log(`[TokenProvider] Cleared cache for userId=${userId}`);
+   } else {
+     tokenCache.clear();
+     console.log(`[TokenProvider] Cleared all cached tokens`);
+   }
+ }
+diff --git a/src/tools/calendar.next_events.v1.ts b/src/tools/calendar.next_events.v1.ts
+index 06c66ca38e34337b0c7b1cf23324f5186e30df21..bd1c22f509fd2e1334ba1a829f71c8bbe34fd885 100644
+--- a/src/tools/calendar.next_events.v1.ts
++++ b/src/tools/calendar.next_events.v1.ts
+@@ -12,101 +12,105 @@ export const description = 'Get details about upcoming or recent meetings from G
+ 
+ export async function handler(
+   args: unknown,
+   context: MCPToolContext
+ ): Promise<{ events: CalendarEvent[]; total: number }> {
+   const startTime = Date.now();
+   console.log(`[MCP-Tool:${name}] called with args:`, JSON.stringify(args));
+ 
+   try {
+     const params = inputSchema.parse(args);
+ 
+     // Check integration status first
+     const integration = await context.storage.getGoogleIntegration(context.userId, context.requestId);
+     if (!integration?.isActive) {
+       throw new HttpError(
+         401,
+         'GOOGLE_NOT_CONNECTED',
+         'Google Calendar not connected',
+         { hint: 'Connect in Settings → Integrations' }
+       );
+     }
+ 
+     // Try to load the Google Calendar service
+     let googleCalendarService;
+     try {
+-      const module = await import('../../../server/services/googleCalendar.js');
++      const module = await import('../../server/services/googleCalendar.js');
+       googleCalendarService = module.googleCalendarService;
+     } catch (importError: any) {
+       // Service not installed or OAuth not configured
+       throw new HttpError(
+         401,
+         'GOOGLE_NOT_CONNECTED',
+         'Google Calendar not connected',
+         { hint: 'Connect in Settings → Integrations' }
+       );
+     }
+ 
+     let events: any[] = [];
+ 
+     if (params.eventId) {
+-      const event = await googleCalendarService.getEventById(context.userId, params.eventId);
++      const event = await googleCalendarService.getEventById(context.userId, params.eventId, context.requestId);
+       if (event) events = [event];
+     } else if (params.contactEmail) {
+-      const allEvents = await googleCalendarService.getUpcomingEvents(context.userId, 50);
++      const allEvents = await googleCalendarService.getUpcomingEvents(context.userId, 50, context.requestId);
+       events = allEvents.filter((event: any) => {
+         if (!event.attendees) return false;
+         return event.attendees.some((attendee: any) => attendee.email === params.contactEmail);
+       });
+     } else if (params.timeRange) {
+       events = await googleCalendarService.getEventsInRange(
+         context.userId,
+         params.timeRange.start,
+-        params.timeRange.end
++        params.timeRange.end,
++        context.requestId
+       );
+     } else if (params.startIso && params.endIso) {
+       events = await googleCalendarService.getEventsInRange(
+         context.userId,
+         params.startIso,
+-        params.endIso
++        params.endIso,
++        context.requestId
+       );
+     } else if (params.window) {
+       events = await googleCalendarService.getEventsInRange(
+         context.userId,
+         params.window.startIso,
+-        params.window.endIso
++        params.window.endIso,
++        context.requestId
+       );
+     } else if (params.daysAhead) {
+       const now = new Date();
+       const futureDate = new Date(now.getTime() + (params.daysAhead * 24 * 60 * 60 * 1000));
+       events = await googleCalendarService.getEventsInRange(
+         context.userId,
+         now.toISOString(),
+-        futureDate.toISOString()
++        futureDate.toISOString(),
++        context.requestId
+       );
+     } else {
+-      const allEvents = await googleCalendarService.getUpcomingEvents(context.userId, 200);
++      const allEvents = await googleCalendarService.getUpcomingEvents(context.userId, 200, context.requestId);
+       const now = new Date();
+       const next24Hours = new Date(now.getTime() + (24 * 60 * 60 * 1000));
+ 
+       events = allEvents.filter((event: any) => {
+         const eventStartStr = event.start?.dateTime ?? (event.start?.date ? `${event.start.date}T00:00:00Z` : null);
+         if (!eventStartStr || !event.start?.dateTime) return false;
+         const eventTime = new Date(eventStartStr);
+         return eventTime <= next24Hours;
+       }).slice(0, 10);
+     }
+ 
+     const transformedEvents: CalendarEvent[] = events.map(event => ({
+       id: event.id,
+       summary: event.summary || 'No Title',
+       start: event.start,
+       end: event.end,
+       attendees: params.includeAttendees ? event.attendees?.map((attendee: any) => ({
+         email: attendee.email,
+         displayName: attendee.displayName,
+         responseStatus: attendee.responseStatus
+       })) : undefined,
+       description: event.description,
+       location: event.location
+     }));
+ 
+diff --git a/src/tools/db.search_prep_notes.v1.ts b/src/tools/db.search_prep_notes.v1.ts
+index 26c38e4fff8fa7ba77c873cf6fa03d69cfd2a0d0..797c783e6593f9c6ae51f35a790c984e418e1eb7 100644
+--- a/src/tools/db.search_prep_notes.v1.ts
++++ b/src/tools/db.search_prep_notes.v1.ts
+@@ -1,49 +1,49 @@
+ import {
+   prepNotesSearchSchemaV1,
+   type PrepNote,
+   type MCPToolContext
+ } from '../contracts/index.js';
+ 
+ export const name = 'db.search_prep_notes.v1';
+ export const version = 'v1';
+ export const inputSchema = prepNotesSearchSchemaV1;
+ export const description = 'Search previous call preparation notes from the database';
+ 
+ export async function handler(
+   args: unknown,
+   context: MCPToolContext
+ ): Promise<{ notes: PrepNote[]; query: string; total: number }> {
+   console.log(`[MCP-Tool:${name}] called with args:`, JSON.stringify(args));
+ 
+   try {
+     const params = inputSchema.parse(args);
+     let allNotes: any[] = [];
+ 
+     try {
+       const { sql } = await import('drizzle-orm');
+-      const { db } = await import('../../../server/db.js');
++      const { db } = await import('../../server/db.js');
+ 
+       const query = `
+         SELECT id, user_id, event_id, text, updated_at 
+         FROM prep_notes 
+         WHERE text ILIKE '%${params.query}%' 
+         ${params.userId ? `AND user_id = '${params.userId}'` : ''}
+         ORDER BY updated_at DESC 
+         LIMIT ${params.limit}
+       `;
+ 
+       const results = await db.execute(sql.raw(query));
+       allNotes = results.rows || [];
+     } catch (error) {
+       console.warn(`[MCP-Tool:${name}] Query failed:`, error);
+       allNotes = [];
+     }
+ 
+     const transformedNotes: PrepNote[] = allNotes.map((note: any) => ({
+       id: note.id,
+       userId: note.user_id,
+       eventId: note.event_id,
+       text: note.text,
+       updatedAt: new Date(note.updated_at)
+     }));
+ 
+diff --git a/src/tools/gmail.read_thread.v1.ts b/src/tools/gmail.read_thread.v1.ts
+index a0429a247c2f0a48b5af3b9604b54af34cfc1854..35257e564ebebe9a1e5fb241d80099c3991bb5cb 100644
+--- a/src/tools/gmail.read_thread.v1.ts
++++ b/src/tools/gmail.read_thread.v1.ts
+@@ -17,51 +17,51 @@ export async function handler(
+     const userId = params.userId;
+ 
+     if (!params.threadId) {
+       throw badRequest('threadId is required');
+     }
+ 
+     const googleIntegration = await context.storage.getGoogleIntegration(userId, context.requestId);
+     if (!googleIntegration?.accessToken) {
+       throw new HttpError(
+         401,
+         'GOOGLE_NOT_CONNECTED',
+         'Gmail not connected',
+         { hint: 'Connect in Settings → Integrations' }
+       );
+     }
+ 
+     const tokens = {
+       access_token: googleIntegration.accessToken,
+       refresh_token: googleIntegration.refreshToken,
+       expiry_date: googleIntegration.tokenExpiry?.getTime()
+     };
+ 
+     // Try to load the Gmail service
+     let readThread, extractMessageParts;
+     try {
+-      const module = await import('../../../server/services/gmail.js');
++      const module = await import('../../server/services/gmail.js');
+       readThread = module.readThread;
+       extractMessageParts = module.extractMessageParts;
+     } catch (importError: any) {
+       throw new HttpError(
+         401,
+         'GOOGLE_NOT_CONNECTED',
+         'Gmail not connected',
+         { hint: 'Connect in Settings → Integrations' }
+       );
+     }
+     const thread = await readThread(tokens, params.threadId);
+     const messages = (thread.messages || []).map((m: any) => {
+       const parts = extractMessageParts(m);
+       return {
+         id: parts.id,
+         date: parts.headers["date"],
+         from: parts.headers["from"],
+         to: parts.headers["to"],
+         subject: parts.headers["subject"],
+         snippet: parts.snippet,
+         body: parts.body
+       };
+     });
+ 
+     console.log(`[MCP-Tool:${name}] Read ${messages.length} messages from thread`);
+diff --git a/src/tools/gmail.search_threads.v1.ts b/src/tools/gmail.search_threads.v1.ts
+index d46cea1941663bb1b6823aa479d057fc38bbaf90..ce11955b205e7fe32ceadb2561ca6dbab38504b2 100644
+--- a/src/tools/gmail.search_threads.v1.ts
++++ b/src/tools/gmail.search_threads.v1.ts
+@@ -13,49 +13,49 @@ export async function handler(
+   console.log(`[MCP-Tool:${name}] called with args:`, JSON.stringify(args));
+ 
+   try {
+     const params = inputSchema.parse(args);
+     const userId = params.userId;
+ 
+     const googleIntegration = await context.storage.getGoogleIntegration(userId, context.requestId);
+     if (!googleIntegration?.accessToken) {
+       throw new HttpError(
+         401,
+         'GOOGLE_NOT_CONNECTED',
+         'Gmail not connected',
+         { hint: 'Connect in Settings → Integrations' }
+       );
+     }
+ 
+     const tokens = {
+       access_token: googleIntegration.accessToken,
+       refresh_token: googleIntegration.refreshToken,
+       expiry_date: googleIntegration.tokenExpiry?.getTime()
+     };
+ 
+     // Try to load the Gmail service
+     let listRecentThreads;
+     try {
+-      const module = await import('../../../server/services/gmail.js');
++      const module = await import('../../server/services/gmail.js');
+       listRecentThreads = module.listRecentThreads;
+     } catch (importError: any) {
+       throw new HttpError(
+         401,
+         'GOOGLE_NOT_CONNECTED',
+         'Gmail not connected',
+         { hint: 'Connect in Settings → Integrations' }
+       );
+     }
+ 
+     const q = params.q || "newer_than:7d";
+     const threads = await listRecentThreads(tokens, q);
+ 
+     const result = threads?.map((t: any) => ({ id: t.id, historyId: t.historyId })) || [];
+ 
+     console.log(`[MCP-Tool:${name}] Found ${result.length} threads`);
+ 
+     return { threads: result };
+   } catch (error) {
+     console.error(`[MCP-Tool:${name}] ERROR:`, error);
+     throw error;
+   }
+ }
+diff --git a/src/tools/index.ts b/src/tools/index.ts
+index 20a5221991b1236ab32b0a66d5eda383c8d42499..53c330650b8e31d08dc8e97749c8e5c22a6173d7 100644
+--- a/src/tools/index.ts
++++ b/src/tools/index.ts
+@@ -64,65 +64,73 @@ function summarizeSchema(schema: ZodSchema): any {
+   try {
+     const shape = (schema as any)._def?.shape?.();
+     if (!shape) return { type: 'object' };
+ 
+     const fields: Record<string, { type: string; required: boolean }> = {};
+     for (const [key, value] of Object.entries(shape)) {
+       const fieldDef = (value as any)._def;
+       fields[key] = {
+         type: fieldDef?.typeName || 'unknown',
+         required: !fieldDef?.checks?.some((c: any) => c.kind === 'optional')
+       };
+     }
+     return { type: 'object', fields };
+   } catch {
+     return { type: 'object' };
+   }
+ }
+ 
+ export async function registerTools(app: Express) {
+   await loadTools();
+ 
+   const { storage } = await import('../../server/storage.js');
+ 
+   for (const tool of tools) {
+     app.post(`/tools/${tool.name}`, bearerAuth, async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
+-      const requestId = `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
++      const headerRequestId = req.header('x-request-id');
++      const requestId = headerRequestId || `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
++      res.setHeader('x-request-id', requestId);
+       console.log(`[MCP-Request:${requestId}] POST /tools/${tool.name}`);
+ 
+       try {
+-        const validatedInput = tool.inputSchema.parse(req.body);
++        const effectiveUser = req.header('x-effective-user');
++        const bodyWithUser = effectiveUser
++          ? { ...req.body, userId: effectiveUser }
++          : req.body;
+ 
+-        const userId = validatedInput.userId || req.body.userId;
++        const validatedInput = tool.inputSchema.parse(bodyWithUser);
++
++        const userId = validatedInput.userId || req.body.userId || effectiveUser;
+         if (!userId) {
+           throw badRequest('userId is required in request body');
+         }
+ 
+         const context: MCPToolContext = {
+           userId,
+           storage,
+-          user: { id: userId }
++          user: { id: userId },
++          requestId
+         };
+ 
+         const result = await tool.handler(validatedInput, context);
+ 
+         console.log(`[MCP-Request:${requestId}] SUCCESS`);
+         res.json(result);
+       } catch (error) {
+         console.error(`[MCP-Request:${requestId}] ERROR:`, error);
+ 
+         if (error instanceof HttpError) {
+           return next(error);
+         }
+ 
+         if ((error as any).name === 'ZodError') {
+           const zodError = error as any;
+           return next(badRequest('Invalid input', zodError.errors));
+         }
+ 
+         next(internalError(error instanceof Error ? error.message : 'Unexpected error'));
+       }
+     });
+   }
+ 
+   // Register the agent endpoint
+   app.post('/agent/act', bearerAuth, async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
+diff --git a/src/tools/salesforce.lookup_account.v1.ts b/src/tools/salesforce.lookup_account.v1.ts
+index f84ba8ba9683878ca377b383ee615a0405e51e3a..50d783c46dcbdfae8b02c5bf923b989a1fc6df79 100644
+--- a/src/tools/salesforce.lookup_account.v1.ts
++++ b/src/tools/salesforce.lookup_account.v1.ts
+@@ -10,73 +10,77 @@ export const version = 'v1';
+ export const inputSchema = salesforceAccountLookupSchemaV1;
+ export const description = 'Retrieve account information from Salesforce';
+ 
+ export async function handler(
+   args: unknown,
+   context: MCPToolContext
+ ): Promise<{ accounts: SalesforceAccount[]; total: number }> {
+   console.log(`[MCP-Tool:${name}] called with args:`, JSON.stringify(args));
+ 
+   try {
+     const params = inputSchema.parse(args);
+ 
+     const salesforceIntegration = await context.storage.getSalesforceIntegration(context.userId, context.requestId);
+     if (!salesforceIntegration?.isActive) {
+       throw new HttpError(
+         401,
+         'SFDC_NOT_CONNECTED',
+         'Salesforce not connected',
+         { hint: 'Connect in Settings → Integrations' }
+       );
+     }
+ 
+     // Try to load the Salesforce service
+     let salesforceCrmService;
+     try {
+-      const module = await import('../../../server/services/salesforceCrm.js');
++      const module = await import('../../server/services/salesforceCrm.js');
+       salesforceCrmService = module.salesforceCrmService;
+     } catch (importError: any) {
+       throw new HttpError(
+         401,
+         'SFDC_NOT_CONNECTED',
+         'Salesforce not connected',
+         { hint: 'Connect in Settings → Integrations' }
+       );
+     }
+ 
++    const fields = params.fields?.length ? params.fields : undefined;
+     let accounts: any[] = [];
+ 
+     if (params.accountId) {
+-      const account = await salesforceCrmService.getAccountById(context.userId, params.accountId);
++      const account = await salesforceCrmService.getAccountById(
++        context.userId,
++        params.accountId,
++        context.requestId,
++        fields
++      );
+       accounts = account ? [account] : [];
+-    } else if (params.name) {
+-      const searchResults = await salesforceCrmService.searchRecords(context.userId, params.name, ['Account']);
+-      accounts = searchResults.filter((record: any) => record.attributes.type === 'Account') || [];
+-    } else if (params.domain) {
+-      const searchResults = await salesforceCrmService.searchRecords(context.userId, params.domain, ['Account']);
+-      accounts = searchResults.filter((record: any) => record.attributes.type === 'Account') || [];
+     } else {
+-      const searchResults = await salesforceCrmService.searchRecords(context.userId, '', ['Account']);
+-      accounts = searchResults.filter((record: any) => record.attributes.type === 'Account') || [];
++      const queryText = params.name ?? params.domain ?? '';
++      accounts = await salesforceCrmService.searchAccounts(
++        context.userId,
++        { queryText, fields },
++        context.requestId
++      );
+     }
+ 
+     const transformedAccounts: SalesforceAccount[] = accounts.map(account => ({
+       Id: account.Id,
+       Name: account.Name,
+       Industry: account.Industry,
+       NumberOfEmployees: account.NumberOfEmployees,
+       AnnualRevenue: account.AnnualRevenue,
+       Website: account.Website,
+       Description: account.Description
+     }));
+ 
+     console.log(`[MCP-Tool:${name}] Found ${transformedAccounts.length} accounts`);
+ 
+     return {
+       accounts: transformedAccounts,
+       total: transformedAccounts.length
+     };
+   } catch (error) {
+     console.error(`[MCP-Tool:${name}] ERROR:`, error);
+     throw error;
+   }
+ }
+diff --git a/src/tools/salesforce.lookup_opportunity.v1.ts b/src/tools/salesforce.lookup_opportunity.v1.ts
+index 3dc446a39c2b090b2e5c7c9986e4eed1f0c47055..2300e9a5d9ac7dccd5581c56b6fe680799dbe17f 100644
+--- a/src/tools/salesforce.lookup_opportunity.v1.ts
++++ b/src/tools/salesforce.lookup_opportunity.v1.ts
+@@ -10,68 +10,81 @@ export const version = 'v1';
+ export const inputSchema = salesforceOpportunityLookupSchemaV1;
+ export const description = 'Get opportunity details from Salesforce';
+ 
+ export async function handler(
+   args: unknown,
+   context: MCPToolContext
+ ): Promise<{ opportunities: SalesforceOpportunity[]; total: number }> {
+   console.log(`[MCP-Tool:${name}] called with args:`, JSON.stringify(args));
+ 
+   try {
+     const params = inputSchema.parse(args);
+ 
+     const salesforceIntegration = await context.storage.getSalesforceIntegration(context.userId, context.requestId);
+     if (!salesforceIntegration?.isActive) {
+       throw new HttpError(
+         401,
+         'SFDC_NOT_CONNECTED',
+         'Salesforce not connected',
+         { hint: 'Connect in Settings → Integrations' }
+       );
+     }
+ 
+     // Try to load the Salesforce service
+     let salesforceCrmService;
+     try {
+-      const module = await import('../../../server/services/salesforceCrm.js');
++      const module = await import('../../server/services/salesforceCrm.js');
+       salesforceCrmService = module.salesforceCrmService;
+     } catch (importError: any) {
+       throw new HttpError(
+         401,
+         'SFDC_NOT_CONNECTED',
+         'Salesforce not connected',
+         { hint: 'Connect in Settings → Integrations' }
+       );
+     }
+ 
++    const fields = params.fields?.length ? params.fields : undefined;
+     let opportunities: any[] = [];
+ 
+     if (params.opportunityId) {
+-      const allOpportunities = await salesforceCrmService.getOpportunities(context.userId, 50);
+-      opportunities = allOpportunities.filter((opp: any) => opp.Id === params.opportunityId);
+-    } else if (params.contactId || params.accountId) {
+-      opportunities = await salesforceCrmService.getOpportunities(context.userId, 50);
++      const opp = await salesforceCrmService.getOpportunityById(
++        context.userId,
++        params.opportunityId,
++        context.requestId,
++        fields
++      );
++      opportunities = opp ? [opp] : [];
+     } else {
+-      opportunities = await salesforceCrmService.getOpportunities(context.userId, 50);
++      opportunities = await salesforceCrmService.getOpportunities(
++        context.userId,
++        {
++          limit: 50,
++          accountId: params.accountId,
++          contactId: params.contactId,
++          fields
++        },
++        context.requestId
++      );
+     }
+ 
+     const transformedOpportunities: SalesforceOpportunity[] = opportunities.map(opp => ({
+       Id: opp.Id,
+       Name: opp.Name,
+       StageName: opp.StageName,
+       Amount: opp.Amount,
+       CloseDate: opp.CloseDate,
+       AccountId: opp.AccountId,
+       AccountName: opp.Account?.Name
+     }));
+ 
+     console.log(`[MCP-Tool:${name}] Found ${transformedOpportunities.length} opportunities`);
+ 
+     return {
+       opportunities: transformedOpportunities,
+       total: transformedOpportunities.length
+     };
+   } catch (error) {
+     console.error(`[MCP-Tool:${name}] ERROR:`, error);
+     throw error;
+   }
+ }
+ 
+EOF
+)
