@@ -2,6 +2,23 @@
 
 A standalone Model Context Protocol (MCP) service providing HTTP REST API access to calendar, CRM, email, and database tools.
 
+## Test in 60 Seconds
+
+1. **Start server**: `npm run dev`
+2. **Copy your public URL** from the console log (looks like `https://<repl-name>.<username>.repl.co`)
+3. **Set env for this shell**:
+   ```bash
+   export HOST='https://<your-public-host>'
+   export DEV_LOCAL_TOOL_KEY='<your-MCP_SERVICE_TOKEN>'
+   ```
+   > Note: `DEV_LOCAL_TOOL_KEY` should be set to the same value as your `MCP_SERVICE_TOKEN` secret
+4. **Run smoke test**:
+   ```bash
+   npm run smoke
+   ```
+
+Expected output: Health, contracts, and calendar tool responses (or clear error messages if integrations not connected).
+
 ## Features
 
 - 8 versioned tools for AI agents:

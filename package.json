@@ -8,7 +8,8 @@
     "dev": "tsx --tsconfig tsconfig.json src/server.ts",
     "build": "tsc",
     "start": "node dist/server.js",
-    "test": "tsx --tsconfig tsconfig.json src/server.ts"
+    "test": "tsx --tsconfig tsconfig.json src/server.ts",
+    "smoke": "bash scripts/smoke.sh $HOST"
   },
   "dependencies": {
     "@neondatabase/serverless": "^0.9.0",

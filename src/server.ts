@@ -56,7 +56,11 @@ app.get('/healthz', (req: Request, res: Response) => {
 
 app.get('/contracts', (req: Request, res: Response) => {
   const tools = getToolNames();
-  res.json({ tools });
+  const toolsWithPaths = tools.map(name => ({
+    name,
+    path: `/mcp/${name}`
+  }));
+  res.json({ tools: toolsWithPaths });
 });
 
 app.get('/debug/version', (req: Request, res: Response) => {
@@ -191,8 +195,10 @@ async function startServer() {
     console.log('[MCP-Server] Registering tools...');
     await registerTools(app);
 
-    const server = http.createServer(app);
-    const wss = new WebSocketServer({ server, path: '/ws/voice' });
+    const httpServer = http.createServer(app);
+    
+    // IMPORTANT: Attach WS to existing HTTP server (NO second listen)
+    const wss = new WebSocketServer({ server: httpServer, path: '/ws/voice' });
 
     wss.on('connection', (ws) => {
       console.log('[WebSocket] Client connected to /ws/voice');
@@ -210,19 +216,28 @@ async function startServer() {
       });
     });
 
-    server.listen(CONFIG.PORT, "0.0.0.0", () => {
-      console.log(`[MCP-Server] Listening on http://0.0.0.0:${CONFIG.PORT} (source: PORT)`);
-      console.log(`[MCP-Server] Health: GET /healthz   Contracts: GET /contracts`);
-      console.log(`[MCP-Server] WebSocket: WS /ws/voice`);
-    });
+    // Guard against duplicate listen on dev reload
+    if (!(globalThis as any).__MCP_SERVER_STARTED__) {
+      (globalThis as any).__MCP_SERVER_STARTED__ = true;
+      
+      httpServer.listen(CONFIG.PORT, "0.0.0.0", () => {
+        const host = process.env.REPLIT_URL || process.env.RAILWAY_PUBLIC_DOMAIN || `http://0.0.0.0:${CONFIG.PORT}`;
+        console.log(`[MCP-Server] Listening on ${host} (source: PORT)`);
+        console.log(`[MCP-Server] Public URL: ${host}`);
+        console.log(`[MCP-Server] Health: GET /healthz   Contracts: GET /contracts`);
+        console.log(`[MCP-Server] WebSocket: WS /ws/voice`);
+      });
 
-    server.on("error", (err: any) => {
-      if (err.code === "EADDRINUSE") {
-        console.error(`[MCP-Server] ❌ Port ${CONFIG.PORT} is already in use. Set PORT to a free port (e.g., 4000) and try again.`);
-        process.exit(1);
-      }
-      throw err;
-    });
+      httpServer.on("error", (err: any) => {
+        if (err.code === "EADDRINUSE") {
+          console.error(`[MCP-Server] ❌ Port ${CONFIG.PORT} is already in use. Set PORT to a free port (e.g., 4000) and try again.`);
+          process.exit(1);
+        }
+        throw err;
+      });
+    } else {
+      console.log("[MCP-Server] Already started; skipping listen()");
+    }
   } catch (error) {
     console.error('[MCP-Server] ❌ Failed to start:', error);
     process.exit(1);

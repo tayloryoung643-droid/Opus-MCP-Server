@@ -1,0 +1,189 @@
+You’re updating my Opus MCP Repl. Goals:
+
+Single listener + WS attach (safety)
+
+Expose stable test routes (/healthz, /contracts, /debug/token-provider)
+
+Dev-auth for tool endpoints (bearer key)
+
+Print the public URL in logs so I can copy it
+
+Add a smoke test script I can run with one command
+
+README update with copy-paste commands
+
+A. Server startup & WS (single listen, Replit-safe)
+
+Open src/server.ts. Replace the server/WS bootstrap with this exact pattern:
+
+// src/server.ts (bootstrap section)
+import http from "http";
+import express from "express";
+import { WebSocketServer } from "ws";
+
+const app = express();
+app.use(express.json());
+
+// --- Routes (keep existing tool routes below) ---
+app.get("/healthz", (_req, res) => res.json({ ok: true }));
+
+// contracts = list tool names exported by our registry
+import { toolContracts } from "./tools/registry"; // create/export this if missing
+app.get("/contracts", (_req, res) => res.json({ tools: toolContracts() }));
+
+// Optional: debug token-provider (if implemented already)
+app.get("/debug/token-provider", (_req, res) => {
+  res.json({ configured: Boolean(process.env.MCP_TOKEN_PROVIDER_SECRET) });
+});
+
+// --- HTTP server + WS on same listener ---
+const httpServer = http.createServer(app);
+
+// IMPORTANT: Attach WS to existing HTTP server (NO second listen)
+const wss = new WebSocketServer({ server: httpServer, path: "/ws/voice" });
+// (keep your WS handlers as-is, just ensure they’re attached to `wss`)
+
+const PORT = Number(process.env.PORT) || 8000;
+
+// Guard against duplicate listen on dev reload
+if (!(globalThis as any).__MCP_SERVER_STARTED__) {
+  (globalThis as any).__MCP_SERVER_STARTED__ = true;
+  httpServer.listen(PORT, "0.0.0.0", () => {
+    const host = process.env.REPLIT_URL || process.env.RAILWAY_PUBLIC_DOMAIN || `http://0.0.0.0:${PORT}`;
+    console.log(`[MCP-Server] Listening on ${host} (source: PORT)`);
+    console.log(`[MCP-Server] Health: GET /healthz   Contracts: GET /contracts`);
+    console.log(`[MCP-Server] WebSocket: WS /ws/voice`);
+  });
+} else {
+  console.log("[MCP-Server] Already started; skipping listen()");
+}
+
+
+Ensure no other server.listen(...) or new WebSocketServer({ port: ... }) exists anywhere else.
+
+B. Tool dev-auth (bearer) for local tests
+
+For every route under /mcp/* (your tool HTTP endpoints), add this minimal dev gate before the handler body:
+
+// middleware/devToolAuth.ts
+import { NextFunction, Request, Response } from "express";
+export function devToolAuth(req: Request, res: Response, next: NextFunction) {
+  const devKey = process.env.DEV_LOCAL_TOOL_KEY;
+  if (!devKey) return res.status(500).json({ error: "DEV_LOCAL_TOOL_KEY not set" });
+  const auth = req.header("authorization") || "";
+  if (auth !== `Bearer ${devKey}`) return res.status(401).json({ error: "Unauthorized" });
+  next();
+}
+
+// in server.ts or your tools router
+import { devToolAuth } from "./middleware/devToolAuth";
+
+// Example tool route
+app.post("/mcp/calendar.next_events.v1", devToolAuth, async (req, res) => {
+  // existing implementation...
+});
+
+
+Add an .env entry (Replit Secrets): DEV_LOCAL_TOOL_KEY=dev-key-123.
+
+C. Print the public URL clearly
+
+Above already logs process.env.REPLIT_URL if present. If not present, derive it once on startup:
+
+// if REPLIT_URL is not injected, try to infer from X-Forwarded-Host on first request:
+app.use((req, _res, next) => {
+  if (!process.env.REPLIT_URL && req.headers["x-forwarded-host"]) {
+    process.env.REPLIT_URL = `https://${req.headers["x-forwarded-host"]}`;
+    console.log(`[config] Detected public URL: ${process.env.REPLIT_URL}`);
+  }
+  next();
+});
+
+D. One-command smoke test
+
+Add scripts/smoke.sh:
+
+#!/usr/bin/env bash
+set -euo pipefail
+
+HOST="${1:-${REPLIT_URL:-}}"
+if [[ -z "${HOST}" ]]; then
+  echo "Usage: ./scripts/smoke.sh https://<your-public-host>"
+  exit 1
+fi
+
+echo "→ Health"
+curl -fsS "$HOST/healthz" | jq .
+
+echo "→ Contracts"
+curl -fsS "$HOST/contracts" | jq .
+
+echo "→ Tool (dev auth) calendar.next_events.v1"
+curl -fsS -X POST "$HOST/mcp/calendar.next_events.v1" \
+  -H "Authorization: Bearer ${DEV_LOCAL_TOOL_KEY}" \
+  -H "Content-Type: application/json" \
+  --data '{"userId":"test-user","timeMin":"2025-10-11T00:00:00Z","timeMax":"2025-10-18T00:00:00Z"}' | jq .
+
+
+Make it executable and wire npm script in package.json:
+
+{
+  "scripts": {
+    "dev": "tsx --tsconfig tsconfig.json src/server.ts",
+    "smoke": "bash scripts/smoke.sh $HOST"
+  }
+}
+
+E. README quickstart (add at top)
+
+Add a “Test in 60 seconds” block to README.md:
+
+### Test in 60 seconds
+1) Start server: `NODE_ENV=development DEBUG=mcp:* npm run dev`
+2) Copy your public URL from the console log (or Replit “Open in Browser”).
+3) Set env for this shell: `export HOST='https://<your-public-host>'`
+4) Set dev key (already in Secrets): `export DEV_LOCAL_TOOL_KEY='dev-key-123'`
+5) Run smoke: `npm run smoke`
+
+F. Bonus: /contracts helper
+
+Implement toolContracts() in src/tools/registry.ts to reflect the actual loaded tools:
+
+// src/tools/registry.ts
+import { loadedTools } from "./loaded"; // wherever you collect tools
+
+export function toolContracts() {
+  return loadedTools.map(t => ({ name: t.name, path: t.httpPath || `/mcp/${t.name}` }));
+}
+
+
+Deliverables:
+
+Updated src/server.ts using the pattern above
+
+middleware/devToolAuth.ts
+
+scripts/smoke.sh + npm script "smoke"
+
+README.md “Test in 60 seconds”
+
+Ensure .env / Replit Secrets includes DEV_LOCAL_TOOL_KEY
+
+After you push:
+
+Start the server, copy the public URL printed (it will look like https://<repl-subdomain>.<username>.repl.co).
+
+In shell:
+
+export HOST='https://<copied-public-url>'
+export DEV_LOCAL_TOOL_KEY='dev-key-123'
+npm run smoke
+
+
+I expect:
+
+Health/Contracts JSON in the terminal
+
+A real JSON payload from calendar.next_events.v1 (or a clear, handled error telling me to connect Google)
+
+If anything fails, show me the exact console output and the JSON response from the failing step.
