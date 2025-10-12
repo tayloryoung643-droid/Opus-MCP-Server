@@ -1,7 +1,7 @@
 import "dotenv/config";
 
 export const CONFIG = {
-  PORT: Number(process.env.PORT ?? process.env.MCP_PORT ?? 4000),
+  PORT: Number(process.env.PORT ?? process.env.MCP_PORT ?? 5000),
   TOKEN: process.env.MCP_SERVICE_TOKEN ?? process.env.MCP_SECRET_TOKEN ?? "",
   TOKEN_PROVIDER_URL: process.env.TOKEN_PROVIDER_URL ?? "",
   MCP_TOKEN_PROVIDER_SECRET: process.env.MCP_TOKEN_PROVIDER_SECRET ?? "",

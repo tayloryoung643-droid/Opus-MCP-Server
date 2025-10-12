@@ -13,7 +13,8 @@ import { execSync } from 'child_process';
 import { getOAuthClient, makeClientsFor } from './lib/google.js';
 import { saveGoogleTokens, getGoogleTokens, clearGoogleTokens, listConnectedUsers, generateOAuthState, validateOAuthState } from './lib/tokenStore.js';
 import { fetchGoogleTokens, getTokenProviderStatus } from './lib/tokenProvider.js';
-import { savePrep, getPrep, listPreps } from './lib/prepStore.js';
+import { savePrep, getPrep, listPreps, saveMinimalPrep } from './lib/prepStore.js';
+import { buildMinimalPrep, buildGmailQuery } from './lib/minimalPrepBuilder.js';
 import { devToolAuth } from './middleware/devToolAuth.js';
 
 const app: Express = express();
@@ -174,7 +175,7 @@ app.get('/auth/google/callback', async (req: Request, res: Response) => {
     await saveGoogleTokens(userId, {
       accessToken: tokens.access_token!,
       refreshToken: tokens.refresh_token!,
-      expiryDate: tokens.expiry_date,
+      expiryDate: tokens.expiry_date ?? undefined,
     });
     
     res.status(200).send('✅ Google connected successfully! You can close this tab and return to your app.');
@@ -305,47 +306,137 @@ app.post('/mcp/prep.generate.v1', devToolAuth, async (req: Request, res: Respons
 
   // 1) Pull the event
   const ev = await calendar.events.get({ calendarId: 'primary', eventId });
-  const attendees = (ev.data.attendees || []).map(a => a.email!).filter(Boolean);
-  const subject = (ev.data.summary || '').slice(0, 80);
+  
+  if (CONFIG.PREP_MODE === 'minimal') {
+    // Minimal mode: facts-only prep
+    const attendees = (ev.data.attendees || []).map(a => a.email!).filter(Boolean);
+    const eventTitle = ev.data.summary || '';
+    
+    // 2) Build tightened Gmail query
+    const q = buildGmailQuery({ attendees, eventTitle, recencyDays: 180 });
+    
+    // 3) Fetch Gmail threads with full message details
+    const list = await gmail.users.threads.list({ userId: 'me', q, maxResults: 10 });
+    const threads = await Promise.all((list.data.threads || []).map(async t => {
+      const full = await gmail.users.threads.get({ userId: 'me', id: t.id!, format: 'full' });
+      return full.data;
+    }));
+    
+    // 4) Fetch Salesforce data (if available)
+    let salesforceData;
+    try {
+      const { storage } = await import('../server/storage.js');
+      const salesforceIntegration = await storage.getSalesforceIntegration(userId, req.header('x-request-id') || 'prep-gen');
+      
+      if (salesforceIntegration?.isActive) {
+        const { salesforceCrmService } = await import('../server/services/salesforceCrm.js');
+        
+        // Try to find account by domain from attendee emails
+        const attendeeDomains = attendees
+          .map(email => email.split('@')[1])
+          .filter(d => d && !d.includes('gmail.com') && !d.includes('outlook.com'));
+        
+        let account: any = undefined;
+        let opportunity: any = undefined;
+        let contacts: any = undefined;
+        
+        if (attendeeDomains.length > 0) {
+          const accountSearch = await salesforceCrmService.searchRecords(userId, attendeeDomains[0], ['Account']);
+          account = accountSearch.find((r: any) => r.attributes.type === 'Account');
+          
+          if (account) {
+            const oppSearch = await salesforceCrmService.getOpportunities(userId);
+            opportunity = oppSearch.find((opp: any) => opp.AccountId === account.Id);
+          }
+        }
+        
+        // Search for contacts by email
+        if (attendees.length > 0) {
+          const contactSearches = await Promise.all(
+            attendees.slice(0, 3).map(email => 
+              salesforceCrmService.searchRecords(userId, email, ['Contact'])
+            )
+          );
+          contacts = contactSearches.flat().filter((r: any) => r.attributes.type === 'Contact');
+        }
+        
+        salesforceData = { account, opportunity, contacts };
+      }
+    } catch (sfError) {
+      console.warn('[prep.generate.v1] Salesforce lookup failed:', sfError);
+    }
+    
+    // 5) Build minimal prep
+    const minimalPrep = buildMinimalPrep({
+      userId,
+      event: {
+        id: ev.data.id ?? eventId,
+        summary: ev.data.summary ?? undefined,
+        start: ev.data.start ? {
+          dateTime: ev.data.start.dateTime ?? undefined,
+          date: ev.data.start.date ?? undefined
+        } : undefined,
+        end: ev.data.end ? {
+          dateTime: ev.data.end.dateTime ?? undefined,
+          date: ev.data.end.date ?? undefined
+        } : undefined,
+        attendees: ev.data.attendees?.map(a => ({
+          email: a.email ?? undefined,
+          displayName: a.displayName ?? undefined,
+          responseStatus: a.responseStatus ?? undefined
+        }))
+      },
+      gmailThreads: threads as any,
+      salesforce: salesforceData
+    });
+    
+    // 6) Save
+    const saved = saveMinimalPrep(minimalPrep);
+    return res.json(saved);
+  } else {
+    // Full mode: template-based prep (legacy)
+    const attendees = (ev.data.attendees || []).map(a => a.email!).filter(Boolean);
+    const subject = (ev.data.summary || '').slice(0, 80);
 
-  // 2) Find 3 recent threads by attendee email + subject keywords
-  const q = `${attendees.map(a => `from:${a}`).join(' OR ')} ${subject ? `subject:("${subject}")` : ''}`;
-  const list = await gmail.users.threads.list({ userId: 'me', q, maxResults: 3 });
-  const threads = await Promise.all((list.data.threads || []).map(async t => {
-    const full = await gmail.users.threads.get({ userId: 'me', id: t.id! });
-    const last = full.data.messages?.at(-1);
-    return { id: t.id, snippet: last?.snippet || '' };
-  }));
+    // 2) Find 3 recent threads by attendee email + subject keywords
+    const q = `${attendees.map(a => `from:${a}`).join(' OR ')} ${subject ? `subject:("${subject}")` : ''}`;
+    const list = await gmail.users.threads.list({ userId: 'me', q, maxResults: 3 });
+    const threads = await Promise.all((list.data.threads || []).map(async t => {
+      const full = await gmail.users.threads.get({ userId: 'me', id: t.id! });
+      const last = full.data.messages?.at(-1);
+      return { id: t.id, snippet: last?.snippet || '' };
+    }));
 
-  // 3) Compose naive sections (placeholder—Agent will do the smart version)
-  const sections = {
-    snapshot: `Meeting: ${ev.data.summary || 'Untitled'}\nParticipants: ${attendees.join(', ')}`,
-    lastContact: threads.map(t => `• ${t.snippet}`),
-    priorities: ['Improve efficiency', 'De-risk project', 'Hit KPIs'],
-    risks: [
-      { risk: 'No budget', counter: 'Prove ROI with pilot' }, 
-      { risk: 'Competing vendor', counter: 'Differentiate on speed' }, 
-      { risk: 'Timing', counter: 'Offer fast start' }
-    ],
-    questions: [
-      'What triggered this meeting?', 
-      'Who is the economic buyer?', 
-      'What does success look like?', 
-      'Timeline?', 
-      'Risks?'
-    ],
-    agenda: [
-      'Context (5m)', 
-      'Discovery (15m)', 
-      'Solution preview (10m)', 
-      'Next steps (5m)'
-    ],
-    notes: '',
-  };
+    // 3) Compose naive sections (placeholder—Agent will do the smart version)
+    const sections = {
+      snapshot: `Meeting: ${ev.data.summary || 'Untitled'}\nParticipants: ${attendees.join(', ')}`,
+      lastContact: threads.map(t => `• ${t.snippet}`),
+      priorities: ['Improve efficiency', 'De-risk project', 'Hit KPIs'],
+      risks: [
+        { risk: 'No budget', counter: 'Prove ROI with pilot' }, 
+        { risk: 'Competing vendor', counter: 'Differentiate on speed' }, 
+        { risk: 'Timing', counter: 'Offer fast start' }
+      ],
+      questions: [
+        'What triggered this meeting?', 
+        'Who is the economic buyer?', 
+        'What does success look like?', 
+        'Timeline?', 
+        'Risks?'
+      ],
+      agenda: [
+        'Context (5m)', 
+        'Discovery (15m)', 
+        'Solution preview (10m)', 
+        'Next steps (5m)'
+      ],
+      notes: '',
+    };
 
-  // 4) Save
-  const saved = savePrep({ userId, eventId, sections });
-  res.json({ prepId: saved.id, url: `/prep/${saved.id}` });
+    // 4) Save
+    const saved = savePrep({ userId, eventId, sections });
+    res.json({ prepId: saved.id, url: `/prep/${saved.id}` });
+  }
 });
 
 app.post('/mcp/:tool', bearerAuth, async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
