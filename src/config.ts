@@ -5,7 +5,8 @@ export const CONFIG = {
   TOKEN: process.env.MCP_SERVICE_TOKEN ?? process.env.MCP_SECRET_TOKEN ?? "",
   TOKEN_PROVIDER_URL: process.env.TOKEN_PROVIDER_URL ?? "",
   MCP_TOKEN_PROVIDER_SECRET: process.env.MCP_TOKEN_PROVIDER_SECRET ?? "",
-  LOG_LEVEL: process.env.LOG_LEVEL ?? "info"
+  LOG_LEVEL: process.env.LOG_LEVEL ?? "info",
+  PREP_MODE: process.env.PREP_MODE ?? "minimal"
 };
 
 console.log(`[config] port=${CONFIG.PORT}, tokenLen=${CONFIG.TOKEN.length}, logLevel=${CONFIG.LOG_LEVEL}`);
