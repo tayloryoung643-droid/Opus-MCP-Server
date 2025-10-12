@@ -1,3 +1,5 @@
+import { MinimalPrepV1 } from '../contracts/index.js';
+
 type Sections = {
   snapshot: string;
   lastContact: string[];
@@ -8,7 +10,7 @@ type Sections = {
   notes?: string;
 };
 
-type Prep = { 
+type FullPrep = { 
   id: string; 
   userId: string; 
   eventId: string; 
@@ -16,11 +18,20 @@ type Prep = {
   createdAt: number;
 };
 
+type Prep = FullPrep | MinimalPrepV1;
+
 const db = new Map<string, Prep>();
 
-export function savePrep(p: Omit<Prep, "id" | "createdAt">): Prep {
+export function savePrep(p: Omit<FullPrep, "id" | "createdAt">): FullPrep {
   const id = `${p.userId}_${p.eventId}_${Date.now()}`;
-  const prep: Prep = { id, createdAt: Date.now(), ...p };
+  const prep: FullPrep = { id, createdAt: Date.now(), ...p };
+  db.set(id, prep);
+  return prep;
+}
+
+export function saveMinimalPrep(p: Omit<MinimalPrepV1, "id" | "createdAt">): MinimalPrepV1 {
+  const id = `${p.userId}_${p.eventId}_${Date.now()}`;
+  const prep: MinimalPrepV1 = { id, createdAt: Date.now(), ...p };
   db.set(id, prep);
   return prep;
 }
