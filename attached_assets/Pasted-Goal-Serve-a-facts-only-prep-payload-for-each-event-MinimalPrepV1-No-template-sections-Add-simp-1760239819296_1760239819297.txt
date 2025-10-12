@@ -1,0 +1,95 @@
+Goal: Serve a facts-only prep payload for each event (MinimalPrepV1). No template sections. Add simple dedupe and tighter Gmail query. Respect PREP_MODE=minimal.
+
+Do this:
+
+Env flag
+
+Add PREP_MODE=minimal default; support "full" for future.
+
+const PREP_MODE = process.env.PREP_MODE ?? "minimal";
+
+
+Data shape
+
+Introduce MinimalPrepV1:
+
+type MinimalPrepV1 = {
+  id: string; userId: string; eventId: string; createdAt: number;
+  meeting: { title: string; start?: string; end?: string };
+  attendees: Array<{ name?: string; email: string; response?: "accepted"|"declined"|"tentative"|"needsAction" }>;
+  gmail: Array<{ threadId: string; subject: string; participants: string[]; lastMessageSnippet: string; lastMessageDate: string }>;
+  salesforce?: {
+    account?: { id: string; name: string; industry?: string; employees?: number; website?: string };
+    opportunity?: { id: string; name: string; stageName?: string; amount?: number; closeDate?: string; owner?: string };
+    contacts?: Array<{ id: string; name?: string; email?: string; title?: string }>;
+  };
+};
+
+
+Builder
+
+Implement buildMinimalPrep({ userId, event, gmailThreads, sf }): MinimalPrepV1:
+
+Attendee dedupe: emails → lowercase; unique by email.
+
+Gmail dedupe: group by normalized subject and keep newest per group (normalize = lowercase, strip re/fw:, collapse whitespace, strip bracketed IDs).
+
+Snippet trim: sentence-tokenize; keep first 2 unique sentences; max 280 chars; add … if truncated.
+
+Limit gmail to max 3 threads, newest first.
+
+Salesforce: only include fields actually present.
+
+Gmail query tightening
+
+Build query:
+
+People: (from:email OR to:email) for each attendee.
+
+Title match: subject:"<normalized event title>"
+
+Recency: newer_than:180d
+
+Combine with OR between people groups.
+
+Extract subject, threadId, participants (emails), lastMessageSnippet, lastMessageDate.
+
+Wire into endpoint
+
+In POST /mcp/prep.generate.v1:
+
+Keep token retrieval flow.
+
+If PREP_MODE === "minimal", skip any template sections and call buildMinimalPrep.
+
+Save in existing in-memory store; return the minimal object.
+
+Security
+
+Keep Bearer auth (accept MCP_SERVICE_TOKEN, and DEV_LOCAL_TOOL_KEY in dev).
+
+No schema migration needed; IDs remain {userId}_{eventId}_{timestamp}.
+
+Acceptance criteria:
+
+Response contains only: meeting, attendees, gmail, salesforce.
+
+Gmail ≤ 3 threads, deduped by subject; snippets ≤ 280 chars; no repetition.
+
+If Salesforce has no matches, salesforce is omitted entirely.
+
+Old “full” mode still available when PREP_MODE=full (but not used by the app).
+
+Smoke tests:
+
+# Generate minimal prep
+curl -sS -X POST http://localhost:7000/mcp/prep.generate.v1 \
+  -H "Authorization: Bearer $MCP_SERVICE_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"userId":"tay","eventId":"<eventId>"}' | jq
+
+# List by user
+curl -sS 'http://localhost:7000/prep?userId=tay' | jq
+
+# Fetch one
+curl -sS 'http://localhost:7000/prep/<prepId>' | jq
