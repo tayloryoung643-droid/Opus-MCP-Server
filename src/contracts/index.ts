@@ -179,6 +179,54 @@ export interface GmailMessage {
   body: string;
 }
 
+// MinimalPrepV1 types
+export interface MinimalPrepV1 {
+  id: string;
+  userId: string;
+  eventId: string;
+  createdAt: number;
+  meeting: {
+    title: string;
+    start?: string;
+    end?: string;
+  };
+  attendees: Array<{
+    name?: string;
+    email: string;
+    response?: "accepted" | "declined" | "tentative" | "needsAction";
+  }>;
+  gmail: Array<{
+    threadId: string;
+    subject: string;
+    participants: string[];
+    lastMessageSnippet: string;
+    lastMessageDate: string;
+  }>;
+  salesforce?: {
+    account?: {
+      id: string;
+      name: string;
+      industry?: string;
+      employees?: number;
+      website?: string;
+    };
+    opportunity?: {
+      id: string;
+      name: string;
+      stageName?: string;
+      amount?: number;
+      closeDate?: string;
+      owner?: string;
+    };
+    contacts?: Array<{
+      id: string;
+      name?: string;
+      email?: string;
+      title?: string;
+    }>;
+  };
+}
+
 // Tool execution context
 export interface MCPToolContext {
   userId: string;
