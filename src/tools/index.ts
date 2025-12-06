@@ -24,7 +24,8 @@ async function loadTools() {
     await import('./salesforce.lookup_opportunity.v1.js'),
     await import('./db.search_prep_notes.v1.js'),
     await import('./db.call_history.v1.js'),
-    await import('./prep.generate.v1.js')
+    await import('./prep.generate.v1.js'),
+    await import('./company.research.v1.js')
   ];
 
   for (const module of toolModules) {

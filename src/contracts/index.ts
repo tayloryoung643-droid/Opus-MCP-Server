@@ -91,6 +91,15 @@ export const gmailReadThreadSchemaV1 = z.object({
   threadId: z.string()
 });
 
+// Company research tool schemas - v1
+export const companyResearchSchemaV1 = z.object({
+  userId: z.string(),
+  company: z.string().optional(),
+  domain: z.string().optional()
+}).refine(data => data.company || data.domain, {
+  message: "Either company name or domain must be provided"
+});
+
 // Tool result types
 export interface SalesforceContact {
   Id: string;
@@ -177,6 +186,23 @@ export interface GmailMessage {
   subject?: string;
   snippet: string;
   body: string;
+}
+
+export interface CompanyResearch {
+  companyName?: string;
+  industry?: string;
+  employeeCount?: string;
+  revenue?: string;
+  description?: string;
+  website?: string;
+  linkedInUrl?: string;
+  recentNews: Array<{
+    headline: string;
+    date?: string;
+    url?: string;
+  }>;
+  lastUpdated: number;
+  searchQuery: string;
 }
 
 // MinimalPrepV1 types
