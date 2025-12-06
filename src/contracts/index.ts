@@ -251,6 +251,21 @@ export interface MinimalPrepV1 {
       title?: string;
     }>;
   };
+  companyResearch?: Array<{
+    domain: string;
+    companyName?: string;
+    industry?: string;
+    employeeCount?: string;
+    revenue?: string;
+    description?: string;
+    website?: string;
+    linkedInUrl?: string;
+    recentNews?: Array<{
+      headline: string;
+      date?: string;
+      url?: string;
+    }>;
+  }>;
 }
 
 // Tool execution context

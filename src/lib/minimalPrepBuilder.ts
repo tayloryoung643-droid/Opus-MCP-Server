@@ -1,5 +1,21 @@
 import { MinimalPrepV1 } from '../contracts/index.js';
 
+interface CompanyResearchData {
+  domain: string;
+  companyName?: string;
+  industry?: string;
+  employeeCount?: string;
+  revenue?: string;
+  description?: string;
+  website?: string;
+  linkedInUrl?: string;
+  recentNews?: Array<{
+    headline: string;
+    date?: string;
+    url?: string;
+  }>;
+}
+
 interface BuildMinimalPrepParams {
   userId: string;
   event: {
@@ -28,6 +44,7 @@ interface BuildMinimalPrepParams {
     opportunity?: any;
     contacts?: any[];
   };
+  companyResearch?: CompanyResearchData[];
 }
 
 function normalizeSubject(subject: string): string {
@@ -193,6 +210,20 @@ export function buildMinimalPrep(params: BuildMinimalPrepParams): Omit<MinimalPr
       }
     : undefined;
   
+  const companyResearch = params.companyResearch?.length
+    ? params.companyResearch.map(cr => ({
+        domain: cr.domain,
+        ...(cr.companyName && { companyName: cr.companyName }),
+        ...(cr.industry && { industry: cr.industry }),
+        ...(cr.employeeCount && { employeeCount: cr.employeeCount }),
+        ...(cr.revenue && { revenue: cr.revenue }),
+        ...(cr.description && { description: cr.description }),
+        ...(cr.website && { website: cr.website }),
+        ...(cr.linkedInUrl && { linkedInUrl: cr.linkedInUrl }),
+        ...(cr.recentNews?.length && { recentNews: cr.recentNews })
+      }))
+    : undefined;
+
   return {
     userId: params.userId,
     eventId: params.event.id,
@@ -203,7 +234,8 @@ export function buildMinimalPrep(params: BuildMinimalPrepParams): Omit<MinimalPr
     },
     attendees,
     gmail,
-    ...(salesforce && { salesforce })
+    ...(salesforce && { salesforce }),
+    ...(companyResearch && { companyResearch })
   };
 }
 
