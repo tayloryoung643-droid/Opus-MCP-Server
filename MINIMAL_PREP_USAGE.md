@@ -81,7 +81,30 @@ Content-Type: application/json
         "title": "VP of Engineering"
       }
     ]
-  }
+  },
+  "companyResearch": [
+    {
+      "domain": "acme.com",
+      "companyName": "Acme Corp",
+      "industry": "Technology & Software",
+      "employeeCount": "5,000+",
+      "revenue": "$500M",
+      "description": "Acme Corp is a leading provider of innovative solutions...",
+      "website": "https://www.acme.com",
+      "linkedInUrl": "https://www.linkedin.com/company/acme-corp",
+      "recentNews": [
+        {
+          "headline": "Acme Corp announces record Q4 revenue",
+          "date": "2025-10-01",
+          "url": "https://news.example.com/acme-q4-revenue"
+        },
+        {
+          "headline": "Acme Corp launches new product line",
+          "url": "https://techcrunch.example.com/acme-product-launch"
+        }
+      ]
+    }
+  ]
 }
 ```
 
@@ -116,6 +139,17 @@ Content-Type: application/json
 - Opportunity lookup by account
 - Contact lookup by attendee emails
 - Omits entire `salesforce` field if no data
+
+### 6. Company Research (Web Enrichment)
+- Automatically researches companies based on attendee email domains
+- Extracts company name, industry, headcount, revenue
+- Finds LinkedIn URLs and company websites
+- Gathers recent news headlines (up to 3)
+- Researches up to 3 unique domains per prep
+- Excludes common email providers (gmail.com, outlook.com, etc.)
+- Falls back to mock data in development mode (no API key needed)
+- Real data requires `GOOGLE_SEARCH_API_KEY` and `GOOGLE_SEARCH_ENGINE_ID`
+- Failures don't break prep generation - company data is simply omitted
 
 ## Retrieve Prep
 
