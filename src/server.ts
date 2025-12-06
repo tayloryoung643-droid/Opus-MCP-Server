@@ -450,6 +450,7 @@ app.post('/mcp/prep.generate.v1', devToolAuth, async (req: Request, res: Respons
     
     // 7) Save
     const saved = saveMinimalPrep(minimalPrep);
+    console.log('[prep.generate.v1] Prep saved:', saved.id, 'companyResearch count:', saved.companyResearch?.length || 0);
     return res.json(saved);
   } else {
     // Full mode: template-based prep (legacy)
