@@ -12,6 +12,7 @@
     "smoke": "bash scripts/smoke.sh $HOST"
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "^0.71.2",
     "@neondatabase/serverless": "^0.9.0",
     "@types/ws": "^8.18.1",
     "cors": "^2.8.5",

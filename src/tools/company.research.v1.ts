@@ -4,6 +4,7 @@ import {
   type MCPToolContext
 } from '../contracts/index.js';
 import { HttpError } from '../errors.js';
+import { researchCompanyWithClaude, isAnthropicAvailable } from '../lib/anthropicResearch.js';
 
 export const name = 'company.research.v1';
 export const version = 'v1';
@@ -261,7 +262,22 @@ export async function handler(
       return cachedResult;
     }
 
-    // Build search query
+    // Try Claude web_search first (primary provider)
+    if (isAnthropicAvailable()) {
+      console.log(`[MCP-Tool:${name}] Using Claude web_search for research`);
+      try {
+        const claudeResult = await researchCompanyWithClaude(params.domain, params.company);
+        if (claudeResult) {
+          setCachedResult(cacheKey, claudeResult);
+          console.log(`[MCP-Tool:${name}] Successfully researched via Claude: ${params.company || params.domain}`);
+          return claudeResult;
+        }
+      } catch (claudeError) {
+        console.warn(`[MCP-Tool:${name}] Claude web_search failed, falling back:`, claudeError);
+      }
+    }
+
+    // Fallback: Google Custom Search API (if configured) or mock data
     let searchQuery: string;
     if (params.domain) {
       searchQuery = `site:${params.domain} OR ${params.domain} company information`;
@@ -275,9 +291,9 @@ export async function handler(
       );
     }
 
-    console.log(`[MCP-Tool:${name}] Search query: ${searchQuery}`);
+    console.log(`[MCP-Tool:${name}] Using fallback search: ${searchQuery}`);
 
-    // Perform web search
+    // Perform web search (Google API or mock data)
     const searchResults = await searchWeb(searchQuery, params.company, params.domain);
 
     // Extract structured information from results

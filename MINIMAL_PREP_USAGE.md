@@ -147,9 +147,14 @@ Content-Type: application/json
 - Gathers recent news headlines (up to 3)
 - Researches up to 3 unique domains per prep
 - Excludes common email providers (gmail.com, outlook.com, etc.)
-- Falls back to mock data in development mode (no API key needed)
-- Real data requires `GOOGLE_SEARCH_API_KEY` and `GOOGLE_SEARCH_ENGINE_ID`
+- **Primary provider**: Claude web_search (requires `ANTHROPIC_API_KEY`)
+- **Fallback providers**: Google Custom Search API, then mock data
 - Failures don't break prep generation - company data is simply omitted
+
+#### Research Provider Priority:
+1. **Claude web_search** (if `ANTHROPIC_API_KEY` is set) - Uses Claude's built-in web search tool for real-time company research with AI-powered extraction
+2. **Google Custom Search** (if `GOOGLE_SEARCH_API_KEY` + `GOOGLE_SEARCH_ENGINE_ID` are set) - Uses Google's search API with pattern matching
+3. **Mock data** (development fallback) - Returns realistic placeholder data for testing
 
 ## Retrieve Prep
 
