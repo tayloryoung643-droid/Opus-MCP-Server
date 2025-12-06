@@ -6,7 +6,8 @@ export const CONFIG = {
   TOKEN_PROVIDER_URL: process.env.TOKEN_PROVIDER_URL ?? "",
   MCP_TOKEN_PROVIDER_SECRET: process.env.MCP_TOKEN_PROVIDER_SECRET ?? "",
   LOG_LEVEL: process.env.LOG_LEVEL ?? "info",
-  PREP_MODE: process.env.PREP_MODE ?? "minimal"
+  PREP_MODE: process.env.PREP_MODE ?? "minimal",
+  ANTHROPIC_API_KEY: process.env.ANTHROPIC_API_KEY ?? ""
 };
 
 console.log(`[config] port=${CONFIG.PORT}, tokenLen=${CONFIG.TOKEN.length}, logLevel=${CONFIG.LOG_LEVEL}`);
@@ -17,4 +18,9 @@ if (CONFIG.TOKEN.length < 10) {
 // Token provider is optional - warn if not configured
 if (!CONFIG.TOKEN_PROVIDER_URL) {
   console.warn("[config] TOKEN_PROVIDER_URL not set - will use local integration state only");
+}
+
+// Anthropic API key is optional - warn if not configured
+if (!CONFIG.ANTHROPIC_API_KEY) {
+  console.warn("[config] ANTHROPIC_API_KEY not set - email enrichment will be disabled");
 }

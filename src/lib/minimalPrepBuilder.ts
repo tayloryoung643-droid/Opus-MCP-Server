@@ -28,6 +28,13 @@ interface BuildMinimalPrepParams {
     opportunity?: any;
     contacts?: any[];
   };
+  enrichments?: Map<string, {
+    keyTopics: string[];
+    actionItems: string[];
+    sentiment: "positive" | "neutral" | "negative" | "mixed";
+    context: string;
+    relevanceScore: number;
+  }>;
 }
 
 function normalizeSubject(subject: string): string {
@@ -151,14 +158,25 @@ export function buildMinimalPrep(params: BuildMinimalPrepParams): Omit<MinimalPr
     const snippet = trimSnippet(lastMessage?.snippet || '');
     const dateMs = parseInt(lastMessage?.internalDate || '0');
     const lastMessageDate = dateMs ? new Date(dateMs).toISOString() : '';
-    
-    return {
+
+    const baseThread = {
       threadId: thread.id,
       subject,
       participants: uniqueParticipants,
       lastMessageSnippet: snippet,
       lastMessageDate
     };
+
+    // Add enrichment if available
+    const enrichment = params.enrichments?.get(thread.id);
+    if (enrichment) {
+      return {
+        ...baseThread,
+        enrichment
+      };
+    }
+
+    return baseThread;
   });
   
   const salesforce = params.salesforce && (params.salesforce.account || params.salesforce.opportunity || params.salesforce.contacts?.length)

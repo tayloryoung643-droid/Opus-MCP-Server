@@ -321,7 +321,40 @@ app.post('/mcp/prep.generate.v1', devToolAuth, async (req: Request, res: Respons
       const full = await gmail.users.threads.get({ userId: 'me', id: t.id!, format: 'full' });
       return full.data;
     }));
-    
+
+    // 3.5) Enrich threads with Claude AI analysis
+    let enrichments: Map<string, any> | undefined;
+    try {
+      const { claudeEnricher } = await import('./lib/claudeEnricher.js');
+
+      if (claudeEnricher.isEnabled()) {
+        console.log('[prep.generate.v1] Enriching Gmail threads with Claude AI...');
+
+        // Transform threads to format expected by enricher
+        const enricherThreads = threads.map(t => ({
+          threadId: t.id!,
+          subject: t.messages?.[0]?.payload?.headers?.find(h => h.name === 'Subject')?.value || '',
+          messages: (t.messages || []).map(m => ({
+            from: m.payload?.headers?.find(h => h.name === 'From')?.value || undefined,
+            to: m.payload?.headers?.find(h => h.name === 'To')?.value || undefined,
+            date: m.payload?.headers?.find(h => h.name === 'Date')?.value || undefined,
+            snippet: m.snippet || undefined
+          }))
+        }));
+
+        enrichments = await claudeEnricher.enrichThreads(
+          enricherThreads,
+          ev.data.summary || 'Untitled Meeting',
+          ev.data.start?.dateTime || ev.data.start?.date
+        );
+
+        console.log(`[prep.generate.v1] Enriched ${enrichments.size} threads`);
+      }
+    } catch (enrichError) {
+      console.error('[prep.generate.v1] Enrichment failed, continuing without:', enrichError);
+      // Continue without enrichment - don't break the workflow
+    }
+
     // 4) Fetch Salesforce data (if available)
     let salesforceData;
     try {
@@ -387,7 +420,8 @@ app.post('/mcp/prep.generate.v1', devToolAuth, async (req: Request, res: Respons
         }))
       },
       gmailThreads: threads as any,
-      salesforce: salesforceData
+      salesforce: salesforceData,
+      enrichments
     });
     
     // 6) Save

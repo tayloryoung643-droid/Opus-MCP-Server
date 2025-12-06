@@ -227,6 +227,13 @@ export interface MinimalPrepV1 {
     participants: string[];
     lastMessageSnippet: string;
     lastMessageDate: string;
+    enrichment?: {
+      keyTopics: string[];
+      actionItems: string[];
+      sentiment: "positive" | "neutral" | "negative" | "mixed";
+      context: string;
+      relevanceScore: number;
+    };
   }>;
   salesforce?: {
     account?: {
