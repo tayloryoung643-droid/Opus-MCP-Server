@@ -1,7 +1,6 @@
 modules = ["python-3.11", "nodejs-20"]
 [agent]
 expertMode = true
-integrations = ["javascript_anthropic:1.0.0"]
 
 [workflows]
 runButton = "Project"
