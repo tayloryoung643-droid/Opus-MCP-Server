@@ -390,30 +390,34 @@ app.post('/mcp/prep.generate.v1', devToolAuth, async (req: Request, res: Respons
       
       console.log('[prep.generate.v1] Researching company domains:', uniqueDomains);
       
-      const researchResults = await Promise.all(
+      const researchResults = await Promise.allSettled(
         uniqueDomains.map(async (domain) => {
-          try {
-            const context: MCPToolContext = { userId, storage: null, user: { id: userId } };
-            const result = await companyResearchHandler({ userId, domain }, context);
-            return {
-              domain,
-              companyName: result.companyName,
-              industry: result.industry,
-              employeeCount: result.employeeCount,
-              revenue: result.revenue,
-              description: result.description,
-              website: result.website,
-              linkedInUrl: result.linkedInUrl,
-              recentNews: result.recentNews
-            };
-          } catch (err) {
-            console.warn(`[prep.generate.v1] Company research failed for ${domain}:`, err);
-            return null;
-          }
+          const context: MCPToolContext = { userId, storage: null, user: { id: userId } };
+          const result = await companyResearchHandler({ userId, domain }, context);
+          return {
+            domain,
+            companyName: result.companyName,
+            industry: result.industry,
+            employeeCount: result.employeeCount,
+            revenue: result.revenue,
+            description: result.description,
+            website: result.website,
+            linkedInUrl: result.linkedInUrl,
+            recentNews: result.recentNews
+          };
         })
       );
       
-      companyResearchData = researchResults.filter((r): r is NonNullable<typeof r> => r !== null);
+      for (const result of researchResults) {
+        if (result.status === 'fulfilled') {
+          companyResearchData.push(result.value);
+        }
+      }
+      
+      const failedCount = researchResults.filter(r => r.status === 'rejected').length;
+      if (failedCount > 0) {
+        console.warn(`[prep.generate.v1] ${failedCount} company research lookup(s) failed`);
+      }
       console.log('[prep.generate.v1] Company research completed:', companyResearchData.length, 'companies');
     } catch (crError) {
       console.warn('[prep.generate.v1] Company research failed:', crError);
