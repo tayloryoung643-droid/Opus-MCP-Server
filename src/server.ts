@@ -345,7 +345,7 @@ app.post('/mcp/prep.generate.v1', devToolAuth, async (req: Request, res: Respons
         enrichments = await claudeEnricher.enrichThreads(
           enricherThreads,
           ev.data.summary || 'Untitled Meeting',
-          ev.data.start?.dateTime || ev.data.start?.date
+          ev.data.start?.dateTime || ev.data.start?.date || undefined
         );
 
         console.log(`[prep.generate.v1] Enriched ${enrichments.size} threads`);
