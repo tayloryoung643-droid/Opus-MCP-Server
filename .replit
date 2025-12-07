@@ -1,6 +1,7 @@
 modules = ["python-3.11", "nodejs-20"]
 [agent]
 expertMode = true
+integrations = ["javascript_anthropic_ai_integrations:1.0.0"]
 
 [workflows]
 runButton = "Project"
@@ -33,6 +34,10 @@ externalPort = 3000
 [[ports]]
 localPort = 8000
 externalPort = 8000
+
+[[ports]]
+localPort = 36159
+externalPort = 3003
 
 [[ports]]
 localPort = 42109
