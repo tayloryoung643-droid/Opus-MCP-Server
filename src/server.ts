@@ -381,6 +381,9 @@ app.post('/mcp/prep.generate.v1', devToolAuth, async (req: Request, res: Respons
     }
 
     // 4) Fetch company research for attendee domains
+    console.log(`[${requestId}] ============================================`);
+    console.log(`[${requestId}] DEBUG: About to run company research`);
+    console.log(`[${requestId}] DEBUG: Attendees:`, attendees);
     console.log(`[${requestId}] Step 4: Researching attendee companies...`);
     let companyResearchResults: any[] = [];
     try {
@@ -409,6 +412,7 @@ app.post('/mcp/prep.generate.v1', devToolAuth, async (req: Request, res: Respons
       const results = await Promise.all(researchPromises);
       companyResearchResults = results.filter(r => r !== null);
 
+      console.log(`[${requestId}] DEBUG: Company research results:`, JSON.stringify(companyResearchResults, null, 2));
       console.log(`[${requestId}] Step 4: Researched ${companyResearchResults.length} companies`);
     } catch (error) {
       console.error(`[${requestId}] Company research step failed:`, error);
@@ -487,6 +491,8 @@ app.post('/mcp/prep.generate.v1', devToolAuth, async (req: Request, res: Respons
     });
     
     // 6) Save
+    console.log(`[${requestId}] DEBUG: About to save prep with companyResearch:`, minimalPrep.companyResearch ? 'YES' : 'NO');
+    console.log(`[${requestId}] DEBUG: minimalPrep structure:`, Object.keys(minimalPrep));
     const saved = saveMinimalPrep(minimalPrep);
     const totalTime = Date.now() - startTime;
 
