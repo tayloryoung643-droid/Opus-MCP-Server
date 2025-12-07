@@ -380,8 +380,43 @@ app.post('/mcp/prep.generate.v1', devToolAuth, async (req: Request, res: Respons
       // Continue without enrichment - don't break the workflow
     }
 
-    // 4) Fetch Salesforce data (if available)
-    console.log(`[${requestId}] Step 4: Checking Salesforce...`);
+    // 4) Fetch company research for attendee domains
+    console.log(`[${requestId}] Step 4: Researching attendee companies...`);
+    let companyResearchResults: any[] = [];
+    try {
+      const { handler: companyResearchHandler } = await import('./tools/company.research.v1.js');
+
+      // Extract unique domains from attendee emails
+      const attendeeDomains = new Map<string, string>(); // domain -> email
+      for (const attendee of attendees) {
+        const domain = attendee.split('@')[1];
+        if (domain && !domain.includes('gmail.com') && !domain.includes('yahoo.com') && !domain.includes('hotmail.com') && !domain.includes('outlook.com')) {
+          attendeeDomains.set(domain, attendee);
+        }
+      }
+
+      // Fetch research for each unique domain
+      const researchPromises = Array.from(attendeeDomains.entries()).map(async ([domain, email]) => {
+        try {
+          const result = await companyResearchHandler({ userId, domain }, { userId, storage: null });
+          return { ...result, matchedAttendee: email };
+        } catch (error) {
+          console.error(`[${requestId}] Company research failed for ${domain}:`, error);
+          return null;
+        }
+      });
+
+      const results = await Promise.all(researchPromises);
+      companyResearchResults = results.filter(r => r !== null);
+
+      console.log(`[${requestId}] Step 4: Researched ${companyResearchResults.length} companies`);
+    } catch (error) {
+      console.error(`[${requestId}] Company research step failed:`, error);
+      // Continue without company research
+    }
+
+    // 5) Fetch Salesforce data (if available)
+    console.log(`[${requestId}] Step 5: Checking Salesforce...`);
     let salesforceData;
     try {
       const { storage } = await import('../server/storage.js');
@@ -447,12 +482,20 @@ app.post('/mcp/prep.generate.v1', devToolAuth, async (req: Request, res: Respons
       },
       gmailThreads: threads as any,
       salesforce: salesforceData,
-      enrichments
+      enrichments,
+      companyResearch: companyResearchResults.length > 0 ? companyResearchResults : undefined
     });
     
     // 6) Save
     const saved = saveMinimalPrep(minimalPrep);
     const totalTime = Date.now() - startTime;
+
+    // Summary logging
+    console.log(`[${requestId}] Prep summary:`);
+    console.log(`  - Gmail threads: ${threads.length}`);
+    console.log(`  - Enriched threads: ${enrichments?.size || 0}`);
+    console.log(`  - Company research: ${companyResearchResults.length}`);
+    console.log(`  - Salesforce data: ${salesforceData ? 'Yes' : 'No'}`);
     console.log(`[${requestId}] prep.generate.v1 completed in ${totalTime}ms`);
     return res.json(saved);
   } else {

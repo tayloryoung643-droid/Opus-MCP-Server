@@ -30,9 +30,10 @@ export class ClaudeEnricher {
         apiKey: CONFIG.ANTHROPIC_API_KEY,
       });
       this.enabled = true;
-      console.log('[ClaudeEnricher] Initialized with API key');
+      console.log('[ClaudeEnricher] ✓ Initialized with API key - Email enrichment enabled');
     } else {
-      console.warn('[ClaudeEnricher] ANTHROPIC_API_KEY not configured - enrichment disabled');
+      console.log('[ClaudeEnricher] ⚠️  ENRICHMENT DISABLED - ANTHROPIC_API_KEY not configured');
+      console.log('[ClaudeEnricher] Set ANTHROPIC_API_KEY in environment to enable AI email analysis');
     }
   }
 

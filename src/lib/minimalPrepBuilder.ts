@@ -35,6 +35,7 @@ interface BuildMinimalPrepParams {
     context: string;
     relevanceScore: number;
   }>;
+  companyResearch?: Array<any>;
 }
 
 function normalizeSubject(subject: string): string {
@@ -221,7 +222,8 @@ export function buildMinimalPrep(params: BuildMinimalPrepParams): Omit<MinimalPr
     },
     attendees,
     gmail,
-    ...(salesforce && { salesforce })
+    ...(salesforce && { salesforce }),
+    ...(params.companyResearch && { companyResearch: params.companyResearch })
   };
 }
 
