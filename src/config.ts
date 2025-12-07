@@ -7,7 +7,7 @@ export const CONFIG = {
   MCP_TOKEN_PROVIDER_SECRET: process.env.MCP_TOKEN_PROVIDER_SECRET ?? "",
   LOG_LEVEL: process.env.LOG_LEVEL ?? "info",
   PREP_MODE: process.env.PREP_MODE ?? "minimal",
-  ANTHROPIC_API_KEY: process.env.ANTHROPIC_API_KEY ?? ""
+  ANTHROPIC_API_KEY: process.env.AI_INTEGRATIONS_ANTHROPIC_API_KEY ?? process.env.ANTHROPIC_API_KEY ?? ""
 };
 
 console.log(`[config] port=${CONFIG.PORT}, tokenLen=${CONFIG.TOKEN.length}, logLevel=${CONFIG.LOG_LEVEL}`);
@@ -23,4 +23,6 @@ if (!CONFIG.TOKEN_PROVIDER_URL) {
 // Anthropic API key is optional - warn if not configured
 if (!CONFIG.ANTHROPIC_API_KEY) {
   console.warn("[config] ANTHROPIC_API_KEY not set - email enrichment will be disabled");
+} else {
+  console.log("[config] Anthropic API key configured - email enrichment enabled");
 }
