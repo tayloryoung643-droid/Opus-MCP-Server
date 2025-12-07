@@ -286,41 +286,66 @@ app.post('/mcp/prep.save.v1', devToolAuth, async (req: Request, res: Response) =
 
 // MCP tool: prep.generate.v1 (orchestration)
 app.post('/mcp/prep.generate.v1', devToolAuth, async (req: Request, res: Response) => {
-  const { userId, eventId } = req.body || {};
-  if (!userId || !eventId) {
-    return res.status(400).json({ error: 'Missing userId/eventId' });
-  }
-
-  const tokens = await getGoogleTokens(userId);
-  if (!tokens) {
-    return res.status(401).json({ 
-      error: { code: 'GOOGLE_NOT_CONNECTED' }
-    });
-  }
-
-  const { calendar, gmail } = await makeClientsFor(userId, {
-    access_token: tokens.accessToken, 
-    refresh_token: tokens.refreshToken, 
-    expiry_date: tokens.expiryDate,
-  });
-
-  // 1) Pull the event
-  const ev = await calendar.events.get({ calendarId: 'primary', eventId });
+  const requestId = req.header('x-request-id') || crypto.randomUUID();
+  const startTime = Date.now();
   
-  if (CONFIG.PREP_MODE === 'minimal') {
-    // Minimal mode: facts-only prep
-    const attendees = (ev.data.attendees || []).map(a => a.email!).filter(Boolean);
-    const eventTitle = ev.data.summary || '';
+  try {
+    const { userId, eventId } = req.body || {};
+    if (!userId || !eventId) {
+      return res.status(400).json({ 
+        error: { 
+          code: 'MISSING_PARAMETERS', 
+          message: 'Missing userId/eventId',
+          requestId 
+        } 
+      });
+    }
     
-    // 2) Build tightened Gmail query
-    const q = buildGmailQuery({ attendees, eventTitle, recencyDays: 180 });
-    
-    // 3) Fetch Gmail threads with full message details
-    const list = await gmail.users.threads.list({ userId: 'me', q, maxResults: 10 });
-    const threads = await Promise.all((list.data.threads || []).map(async t => {
-      const full = await gmail.users.threads.get({ userId: 'me', id: t.id!, format: 'full' });
-      return full.data;
-    }));
+    console.log(`[${requestId}] prep.generate.v1 started for user=${userId}, event=${eventId}`);
+
+    const tokens = await getGoogleTokens(userId);
+    if (!tokens) {
+      console.log(`[${requestId}] Google not connected for user=${userId}`);
+      return res.status(401).json({ 
+        error: { 
+          code: 'GOOGLE_NOT_CONNECTED',
+          message: 'Google account not connected. Please connect your Google account.',
+          requestId 
+        }
+      });
+    }
+
+    console.log(`[${requestId}] Step 1: Creating Google clients...`);
+    const { calendar, gmail } = await makeClientsFor(userId, {
+      access_token: tokens.accessToken, 
+      refresh_token: tokens.refreshToken, 
+      expiry_date: tokens.expiryDate,
+    });
+
+    // 1) Pull the event
+    console.log(`[${requestId}] Step 2: Fetching calendar event...`);
+    const ev = await calendar.events.get({ calendarId: 'primary', eventId });
+  
+    if (CONFIG.PREP_MODE === 'minimal') {
+      // Minimal mode: facts-only prep
+      const attendees = (ev.data.attendees || []).map(a => a.email!).filter(Boolean);
+      const eventTitle = ev.data.summary || '';
+      console.log(`[${requestId}] Step 3: Searching Gmail (${attendees.length} attendees)...`);
+      
+      // 2) Build tightened Gmail query
+      const q = buildGmailQuery({ attendees, eventTitle, recencyDays: 180 });
+      
+      // 3) Fetch Gmail threads with full message details
+      const gmailStart = Date.now();
+      const list = await gmail.users.threads.list({ userId: 'me', q, maxResults: 10 });
+      console.log(`[${requestId}] Step 3a: Found ${list.data.threads?.length || 0} threads in ${Date.now() - gmailStart}ms`);
+      
+      const threadStart = Date.now();
+      const threads = await Promise.all((list.data.threads || []).map(async t => {
+        const full = await gmail.users.threads.get({ userId: 'me', id: t.id!, format: 'full' });
+        return full.data;
+      }));
+      console.log(`[${requestId}] Step 3b: Fetched thread details in ${Date.now() - threadStart}ms`);
 
     // 3.5) Enrich threads with Claude AI analysis
     let enrichments: Map<string, any> | undefined;
@@ -356,6 +381,7 @@ app.post('/mcp/prep.generate.v1', devToolAuth, async (req: Request, res: Respons
     }
 
     // 4) Fetch Salesforce data (if available)
+    console.log(`[${requestId}] Step 4: Checking Salesforce...`);
     let salesforceData;
     try {
       const { storage } = await import('../server/storage.js');
@@ -426,6 +452,8 @@ app.post('/mcp/prep.generate.v1', devToolAuth, async (req: Request, res: Respons
     
     // 6) Save
     const saved = saveMinimalPrep(minimalPrep);
+    const totalTime = Date.now() - startTime;
+    console.log(`[${requestId}] prep.generate.v1 completed in ${totalTime}ms`);
     return res.json(saved);
   } else {
     // Full mode: template-based prep (legacy)
@@ -470,6 +498,60 @@ app.post('/mcp/prep.generate.v1', devToolAuth, async (req: Request, res: Respons
     // 4) Save
     const saved = savePrep({ userId, eventId, sections });
     res.json({ prepId: saved.id, url: `/prep/${saved.id}` });
+  }
+  } catch (error: any) {
+    const elapsed = Date.now() - startTime;
+    const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+    const errorStack = error instanceof Error ? error.stack : undefined;
+    
+    console.error(`[${requestId}] prep.generate.v1 FAILED after ${elapsed}ms:`, errorMessage);
+    if (errorStack) {
+      console.error(`[${requestId}] Stack trace:`, errorStack);
+    }
+    
+    // Check for specific error types using status codes and structured fields
+    const statusCode = error?.response?.status || error?.code || error?.status;
+    const errorReason = error?.errors?.[0]?.reason;
+    
+    // Token expiry detection - check status code, error reason, or message patterns
+    const isTokenExpired = statusCode === 401 || 
+      errorReason === 'authError' ||
+      errorMessage.includes('invalid_grant') || 
+      errorMessage.includes('Token has been expired') ||
+      errorMessage.includes('Invalid Credentials');
+    
+    if (isTokenExpired) {
+      return res.status(401).json({
+        error: {
+          code: 'GOOGLE_TOKEN_EXPIRED',
+          message: 'Google authentication has expired. Please reconnect your Google account.',
+          requestId
+        }
+      });
+    }
+    
+    // Event not found detection
+    const isNotFound = statusCode === 404 || 
+      errorMessage.includes('Not Found') || 
+      errorMessage.includes('notFound');
+    
+    if (isNotFound) {
+      return res.status(404).json({
+        error: {
+          code: 'EVENT_NOT_FOUND',
+          message: 'Calendar event not found',
+          requestId
+        }
+      });
+    }
+    
+    return res.status(500).json({
+      error: {
+        code: 'PREP_GENERATION_FAILED',
+        message: errorMessage,
+        requestId
+      }
+    });
   }
 });
 
